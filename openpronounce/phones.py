@@ -81,6 +81,8 @@ _PHONE_MAP = {
         "x": "h",   # h said (and heard) as a velar/uvular/pharyngeal fricative
         "χ": "h",
         "ħ": "h",
+        "ɹ": "r",   # the recognizer spells Indonesian r as the English approximant
+        "ɾ": "r",   # ...or as a tap
     },
 }
 
@@ -98,11 +100,23 @@ _NEAR_PHONES = {
         {"v", "f"}, {"ʒ", "ʃ"}, {"dʒ", "tʃ"}, {"n", "ŋ"}, {"h", "x"}, {"ɹ", "r"}, {"v", "w"},
     ],
     # The recognizer systematically voices Indonesian's unaspirated stops and maps the
-    # velar nasal to n word-finally; learners and raters do not count those as errors.
+    # velar nasal to n word-finally; it also tends to hear the second half of a diphthong
+    # weakly ("mau" -> /ma/). Learners and raters do not count those as errors.
     "id": [
         {"p", "b"}, {"t", "d"}, {"k", "ɡ"}, {"s", "z"}, {"f", "v"}, {"ʃ", "ʒ"}, {"tʃ", "dʒ"},
         {"n", "ŋ"},
+        {"aʊ", "a"}, {"aʊ", "u"}, {"aɪ", "a"}, {"aɪ", "i"}, {"oɪ", "o"}, {"oɪ", "i"},
     ],
+}
+
+# Adjacent phones the recognizer splits a diphthong into, reunited into the single phone
+# espeak writes (e.g. "mau" heard as m a u -> m aʊ). Applied per language.
+_DIPHTHONG_MERGES = {
+    "id": {
+        ("a", "ʊ"): "aʊ", ("a", "u"): "aʊ",
+        ("a", "ɪ"): "aɪ", ("a", "i"): "aɪ",
+        ("o", "ɪ"): "oɪ", ("o", "i"): "oɪ",
+    },
 }
 
 # Function words with more than one accepted pronunciation (already normalized), per language.
@@ -345,6 +359,32 @@ def _pronunciations(word, expected_seg, previous_last_phone=None, lang=DEFAULT_L
     return candidates
 
 
+def _merge_diphthongs(phones, lang):
+    """Reunite adjacent phones the recognizer split a diphthong into ("mau": m a u -> m aʊ)."""
+    merges = _DIPHTHONG_MERGES.get(lang, {})
+    out = []
+    for phone in phones:
+        if out and (out[-1], phone) in merges:
+            out[-1] = merges[(out[-1], phone)]
+        else:
+            out.append(phone)
+    return out
+
+
+def _merge_diphthongs_indexed(phones, groups, lang):
+    """Like :func:`_merge_diphthongs` for parallel ``(phone, source_indices)`` lists."""
+    merges = _DIPHTHONG_MERGES.get(lang, {})
+    out_phones, out_groups = [], []
+    for phone, group in zip(phones, groups):
+        if out_phones and (out_phones[-1], phone) in merges:
+            out_phones[-1] = merges[(out_phones[-1], phone)]
+            out_groups[-1] = out_groups[-1] + list(group)
+        else:
+            out_phones.append(phone)
+            out_groups.append(list(group))
+    return out_phones, out_groups
+
+
 def _substitution_cost(expected, heard, lang):
     """Cost of hearing ``heard`` instead of ``expected``: 1, or NEAR_PHONE_COST for close phones."""
     for group in _NEAR_PHONES.get(lang, []):
@@ -387,7 +427,10 @@ def _phone_reports(candidate, actual, matched, recognition, region, lang):
     spans = recognition.spans if recognition is not None else None
 
     def frames(j):
-        return spans[matched[j]] if spans is not None else (0, 0)
+        if spans is None:
+            return (0, 0)
+        ids = matched[j]
+        return (min(spans[i][0] for i in ids), max(spans[i][1] for i in ids))
 
     reports = []
     last = len(candidate) - 1
@@ -446,9 +489,11 @@ def _word_reports(heard_phones, text_reference, lang=DEFAULT_LANGUAGE):
         indices = range(offset, offset + len(group))
         offset += len(group)
         matched = sorted(set().union(*(alignment[i] for i in indices)))
-        actual = [heard[j] for j in matched]
+        actual, matched = _merge_diphthongs_indexed(
+            [heard[j] for j in matched], [[j] for j in matched], lang)
 
-        candidates = _pronunciations(word, group, previous_last_phone, lang)
+        candidates = [_merge_diphthongs(c, lang)
+                      for c in _pronunciations(word, group, previous_last_phone, lang)]
         distances = [Levenshtein.distance(c, actual) for c in candidates]
         distance = min(distances)
         candidate = candidates[distances.index(distance)]
@@ -457,7 +502,9 @@ def _word_reports(heard_phones, text_reference, lang=DEFAULT_LANGUAGE):
         if recognition is None:
             region = (0, 0)
         elif matched:
-            region = (recognition.spans[matched[0]][0], recognition.spans[matched[-1]][1])
+            first, last = matched[0], matched[-1]
+            region = (min(recognition.spans[i][0] for i in first),
+                      max(recognition.spans[i][1] for i in last))
         else:
             before = [j for i in range(indices[0]) for j in alignment[i]]
             after = [j for i in range(indices[-1] + 1, len(expected)) for j in alignment[i]]

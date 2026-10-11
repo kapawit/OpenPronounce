@@ -51,6 +51,11 @@ class TestIndonesianPhones(unittest.TestCase):
         for variant in ("x", "χ", "ħ"):
             self.assertEqual(phones.normalize_phones([variant], lang="id"), ["h"])
 
+    def test_rhotic_variants_map_to_r(self):
+        # The recognizer spells Indonesian /r/ as the English approximant ɹ (or a tap).
+        self.assertEqual(phones.normalize_phones(["ɹ"], lang="id"), ["r"])
+        self.assertEqual(phones.normalize_phones(["ɾ"], lang="id"), ["r"])
+
     def test_merges_are_indonesian_only(self):
         self.assertEqual(phones.normalize_phones(["ɛ"], lang="de"), ["ɛ"])
         self.assertEqual(phones.normalize_phones(["ɑ"], lang="fr"), ["ɑ"])
@@ -68,9 +73,37 @@ class TestIndonesianPhones(unittest.TestCase):
         # /ə/ vs /a/ changes meaning (perang "war" vs parang "machete"), so it is a full error.
         self.assertEqual(phones._substitution_cost("ə", "a", "id"), 1.0)
 
+    def test_diphthong_glides_are_close_to_their_vowels(self):
+        # The English phone model hears the second half of a diphthong weakly.
+        self.assertEqual(phones._substitution_cost("aʊ", "a", "id"), phones.NEAR_PHONE_COST)
+        self.assertEqual(phones._substitution_cost("aʊ", "u", "id"), phones.NEAR_PHONE_COST)
+        self.assertEqual(phones._substitution_cost("aɪ", "a", "id"), phones.NEAR_PHONE_COST)
+        self.assertEqual(phones._substitution_cost("aɪ", "i", "id"), phones.NEAR_PHONE_COST)
+        self.assertEqual(phones._substitution_cost("oɪ", "o", "id"), phones.NEAR_PHONE_COST)
+        # ...but the pure vowels a and u are not close to each other.
+        self.assertEqual(phones._substitution_cost("a", "u", "id"), 1.0)
+
+    def test_dropped_diphthong_glide_is_not_flagged(self):
+        # "mau" /maʊ/ heard as "ma": the one close substitution stays below the threshold.
+        self.assertEqual(phones.compare_phones(["m", "a"], "mau", lang="id")["errors"], [])
+
+    def test_split_diphthong_is_reunited(self):
+        # The recognizer often splits /aʊ/ into two phones; within a word it is put back
+        # so it matches espeak ("mau" heard as m a u).
+        self.assertEqual(phones.compare_phones(["m", "a", "u"], "mau", lang="id")["errors"], [])
+        # ...but the split is not reunited across a word boundary ("Dua ular" stays two words).
+        result = phones.compare_phones(["d", "u", "a", "u", "l", "a", "r"], "Dua ular", lang="id")
+        self.assertEqual(result["words_with_errors"], [])
+
     def test_voiced_stops_are_not_flagged_on_a_short_word(self):
         # "kata" with both stops voiced: two close substitutions stay below the threshold.
         self.assertEqual(phones.compare_phones(["ɡ", "a", "d", "a"], "kata", lang="id")["errors"], [])
+
+    def test_genuine_error_is_still_flagged(self):
+        # /b/ for /m/ is a real error (nasal vs stop), not a close pair: it must be reported,
+        # so the diphthong tolerance above did not blunt the scorer.
+        result = phones.compare_phones(["b", "a", "u"], "mau", lang="id")
+        self.assertEqual(result["words_with_errors"], ["mau"])
 
     def test_voiced_stops_are_flagged_without_the_indonesian_rule(self):
         # A fair control: Spanish phonemizes "kata" to the same /kata/ phones but has no

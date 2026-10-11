@@ -3,7 +3,7 @@
 Goal: add Indonesian (`id`) to OpenPronounce as a supported, selectable language
 for the pronunciation scorer. POC first, then calibrate.
 
-## Status: POC verified end-to-end; phone normalization calibrated (step 1)
+## Status: POC verified end-to-end; phone normalization (step 1) and diphthongs (step 2) calibrated
 
 ## What changed
 
@@ -34,26 +34,64 @@ for the pronunciation scorer. POC first, then calibrate.
   close-phone cost, and a `kata` behavioral check that flags in German but not
   in Indonesian).
 
+### Calibration step 2 (diphthongs and rhotics)
+
+- `openpronounce/phones.py`:
+  - `_NEAR_PHONES["id"]` gained diphthong/vowel close pairs `{aʊ,a} {aʊ,u}
+    {aɪ,a} {aɪ,i} {oɪ,o} {oɪ,i}`. The English model often hears the second half
+    of an Indonesian diphthong weakly (`mau` -> `/ma/`); on a 2-phone word that
+    otherwise counted as a full substitution. The pure vowels `a`/`u` are
+    deliberately *not* a close pair (each diphthong is split into two separate
+    groups so `a` and `u` never share one).
+  - `_DIPHTHONG_MERGES["id"]`: adjacent `a+u / a+ʊ -> aʊ`, `a+i / a+ɪ -> aɪ`,
+    `o+i / o+ɪ -> oɪ`. The recognizer sometimes splits a diphthong into two
+    phones (`mau` -> `m a u`) while espeak writes one (`m aʊ`).
+  - `_merge_diphthongs` / `_merge_diphthongs_indexed` apply that merge **per
+    word** inside `_word_reports`, to both the expected candidate and the heard
+    slice. This is deliberate: a global merge on the heard stream also joins
+    `a|u` across a word boundary (`Dua ular` -> `...aʊ l...`) and corrupts the
+    alignment. Per-word merging keeps `Dua ular` intact.
+  - `_PHONE_MAP["id"]`: `ɹ -> r`, `ɾ -> r`. The recognizer spells Indonesian
+    `/r/` as the English approximant (or a tap), which otherwise split a word
+    (`ular` -> `ulaɹʔ`) and caused a false alarm.
+- `tests/test_languages.py` — new `TestIndonesianPhones` cases:
+  `test_rhotic_variants_map_to_r`, `test_diphthong_glides_are_close_to_their_vowels`,
+  `test_dropped_diphthong_glide_is_not_flagged`, `test_split_diphthong_is_reunited`
+  (includes the `Dua ular` word-boundary control), and
+  `test_genuine_error_is_still_flagged` (guards against over-tolerance).
+
 ## Verification
 
 Environment: `.venv` (created with `virtualenv`; the system `python3-venv`
 module and `espeak-ng` CLI are absent, but `libespeak-ng` + `espeak-ng-data`
 are installed, so `phonemizer` works). Torch from the CPU wheel index.
 
-- Full suite: `105 passed` (`.venv/bin/pytest`).
+- Full suite: `111 passed` (`.venv/bin/pytest`).
 - `TestIndonesian::test_registry_entry` and `TestIndonesianPhones` pass.
 - Phonemization: `"Saya mau pesan kopi, tolong."` -> `/saja maʊ pɛsan kopi toloŋ/`.
 - `GET /languages` returns `{"code": "id", "name": "Indonesian"}`.
 - Word-list sample (gTTS audio, espeak `id` vs recognizer): exact-match diffs
   fell 25 -> 20; the survivors are alignment-level and no longer flag words.
+- Flagged-word sample (same 41 gTTS words, `compare_phones` after steps 1+2):
+  **0/41 words flagged** (single words and the tricky diphthong words `mau`,
+  `pisau`, `kerbau`, `pantai`, `sampai`, `pulau`).
+- Sentence sample (18 gTTS sentences): **0/18 flagged**; the word-boundary
+  controls `"Dua ular itu."` (PER 0.10) and `"Kota udara itu."` (PER 0.08) are
+  clean, confirming the per-word diphthong merge does not bleed across words.
 - Full pipeline on a gTTS Indonesian clip (`compare_audio_with_text`, lang=`id`):
 
   ```
-  before:  SCORE 88.0  PER 0.30  WER 0.0
-  after:   SCORE 90.0  PER 0.25  WER 0.0
+  before:      SCORE 88.0  PER 0.30  WER 0.0   (apa/empat false alarms)
+  step 1:      SCORE 90.0  PER 0.25  WER 0.0   (voicing/vowel false alarms gone; `mau` still flagged)
+  steps 1+2:   SCORE 90.0  PER 0.25  WER 0.0   errors []
   ```
 
-  The `apa`/`empat`-style voicing and vowel-variant false alarms are gone.
+  Steps 1+2 leave no flagged words. `phone_error_rate` is still 0.25 because it
+  is the raw recognizer-vs-espeak edit rate on the unmerged stream (the
+  recognizer drops the final `ŋ`, splits `aʊ`, unvoices stops); it is *not* the
+  learner-facing error signal, which is `errors`/`words_with_errors` (empty).
+- Negative control: a genuine error still flags (`mau` heard as `b a u`:
+  `/b/` for `/m/` is nasal-vs-stop, a full error, reported).
   Models are cached, so re-runs are offline.
 
 ## Known gaps (still to calibrate)
@@ -61,25 +99,31 @@ are installed, so `phonemizer` works). Torch from the CPU wheel index.
 - `acoustic_good` is a guess; not measured against two native voices.
 - No Indonesian reference voice besides gTTS (no Piper or Kokoro `id` voice), so
   the acoustic baseline cannot be measured the way the other languages were.
-- Residual false alarm: the diphthong /aʊ/ in `mau` is flagged (expected `maʊ`,
-  heard `mau`/`u`). Beyond the conservative merge set; needs a diphthong rule.
 - No human-rated calibration data for Indonesian (English only).
-- The close-pair cost (`NEAR_PHONE_COST = 0.5`) means a *single* close
-  substitution is never flagged on any word of 2+ phones, so voicing minimal
-  pairs pass (`paku`/`baku`, `cari`/`jari`, `nasi`/`ngasi`). This is the
-  existing model, shared with English and French; it is not Indonesian-specific
-  and would need a global scoring change, so it is documented, not changed.
+- The close-pair cost (`NEAR_PHONE_COST = 0.5`) and the flag thresholds
+  (`PHONE_ERROR_THRESHOLD`, `PHONE_ERROR_MIN_EDITS`) mean a *single* wrong phone
+  is never flagged on a word of 3+ phones: a full vowel swap (`makan` ->
+  `mokan`) or a dropped non-final syllable (`makan` -> `mak`) passes. This is the
+  existing model, shared with English and French, and changing it globally would
+  trade these misses for more false alarms, so it is documented, not changed.
+  It is the main remaining accuracy gap for a pronunciation trainer and needs
+  human-rated data to tune.
 - End-to-end run used the reference clip as the "learner" audio, so
   `acoustic_distance` is 0.0; a real non-native recording has not been tested.
+- `phone_error_rate` is a raw recognizer-vs-espeak rate and stays ~0.25 on
+  correct audio (recognizer drops final `ŋ`, splits diphthongs, unvoices stops);
+  the per-word `errors` are the signal users see. Not changed here.
 
 ## Next steps
 
 1. (done) Sample espeak `id` vs the recognizer; add `_PHONE_MAP` / `_NEAR_PHONES`.
-2. Handle diphthongs (`aɪ`, `aʊ`, `oɪ`) recognized as vowel+glide, to clear the
-   remaining `mau`-type flags.
+2. (done) Reunite diphthongs (`aɪ`, `aʊ`, `oɪ`) the recognizer splits into
+   vowel+glide, and map the rhotic variants, to clear the `mau`/`ular`-type
+   false alarms.
 3. Measure the acoustic baseline and set `acoustic_good` from data — blocked on a
    second Indonesian voice (Piper has no `id` voice today).
-4. Collect native readings for human calibration.
+4. Collect native readings for human calibration, then tune the flag thresholds
+   (the single-substitution miss above) with that data.
 5. Optional: a Piper voice for `id` if one appears upstream.
 
 ## Reproduce
