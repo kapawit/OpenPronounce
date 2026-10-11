@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added: Indonesian (`id`) as an experimental language (espeak voice `id`, `indonesian-nlp/wav2vec2-large-xlsr-indonesian` for transcription). Not calibrated yet: placeholder acoustic baseline and no Indonesian-specific phone normalization.
+
 ## 0.3.0 (2026-08-15)
 
 - Added: multi-language support (fr, es, de, it, pt, nl), `lang` parameter everywhere (`--lang` on the CLI, `lang` form field on the API), `GET /languages`. English stays the default and behaves as before.

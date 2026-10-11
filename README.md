@@ -28,7 +28,7 @@ Mispronounced:
   - how: expected /haʊ/, heard /hu/ (confidence 50%)
 ```
 
-Azure Speech, SpeechAce or ELSA sell this behind an API key and a per-minute price. OpenPronounce is the MIT-licensed building block for language-learning apps, EdTech products and research: no key, no billing, and your learners' voices never leave your servers. English is the calibrated language; French, Spanish, German, Italian, Portuguese and Dutch work too, experimentally.
+Azure Speech, SpeechAce or ELSA sell this behind an API key and a per-minute price. OpenPronounce is the MIT-licensed building block for language-learning apps, EdTech products and research: no key, no billing, and your learners' voices never leave your servers. English is the calibrated language; French, Spanish, German, Italian, Portuguese, Dutch and Indonesian work too, experimentally.
 
 ## Install
 

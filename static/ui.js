@@ -12,6 +12,7 @@
     // BCP 47 tags for the browser SpeechSynthesis, keyed by server language code
     const SPEECH_LANGS = {
         en: 'en-US', fr: 'fr-FR', es: 'es-ES', de: 'de-DE', it: 'it-IT', pt: 'pt-BR', nl: 'nl-NL',
+        id: 'id-ID',
     };
 
     const EXAMPLES = {
@@ -22,6 +23,7 @@
         it: ['Ciao, come stai?', 'Vorrei un caffè, per favore.', 'Oggi il tempo è bello.'],
         pt: ['Olá, como você está?', 'Eu gostaria de um café, por favor.', 'O tempo está bonito hoje.'],
         nl: ['Hallo, hoe gaat het?', 'Ik wil graag een kopje koffie.', 'Het weer is vandaag mooi.'],
+        id: ['Halo, apa kabar?', 'Saya mau pesan kopi, tolong.', 'Cuaca hari ini sangat cerah.'],
     };
 
     // Same tokenization as the server (\b[\w']+\b with Unicode word characters)

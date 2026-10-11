@@ -33,6 +33,8 @@ LANGUAGES = {
     "it": Language("it", "it", "jonatasgrosman/wav2vec2-large-xlsr-53-italian", "Italian", acoustic_good=9.0),
     "pt": Language("pt", "pt-br", "jonatasgrosman/wav2vec2-large-xlsr-53-portuguese", "Portuguese", acoustic_good=11.0),
     "nl": Language("nl", "nl", "jonatasgrosman/wav2vec2-large-xlsr-53-dutch", "Dutch", acoustic_good=13.0),
+    # Experimental: not yet calibrated (acoustic_good is a placeholder, phone normalization untuned).
+    "id": Language("id", "id", "indonesian-nlp/wav2vec2-large-xlsr-indonesian", "Indonesian", acoustic_good=11.0),
 }
 
 

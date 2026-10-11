@@ -29,6 +29,17 @@ class TestRegistry(unittest.TestCase):
         self.assertIn("fr", str(ctx.exception))
 
 
+class TestIndonesian(unittest.TestCase):
+
+    def test_registry_entry(self):
+        language = LANGUAGES["id"]
+        self.assertEqual(language.code, "id")
+        self.assertEqual(language.espeak, "id")
+        self.assertEqual(language.asr_model, "indonesian-nlp/wav2vec2-large-xlsr-indonesian")
+        self.assertEqual(language.name, "Indonesian")
+        self.assertGreaterEqual(language.acoustic_good, LANGUAGES["en"].acoustic_good)
+
+
 class TestFrenchPhones(unittest.TestCase):
 
     def test_expected_phones_are_french(self):
