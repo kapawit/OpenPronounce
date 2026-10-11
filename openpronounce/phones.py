@@ -51,8 +51,10 @@ _TOKEN_ALIASES = {"th": "t", "kh": "k", "ph": "p", "tʰ": "t", "kʰ": "k", "pʰ"
 _TONE_RE = re.compile(r"\d")
 
 # Phones that espeak and the recognizer use interchangeably, or that no learner
-# should be penalised for, per language. Length marks are always dropped. Only
-# English needs merges so far: ɔ/ɑ and ɾ/t are contrastive in French, German or Spanish.
+# should be penalised for, per language. Length marks are always dropped. English
+# needs ɔ/ɑ and ɾ/t; Indonesian is written with fewer vowel letters than the English
+# phone model emits, so ɑ/ʌ, ɛ and ɔ collapse onto a/e/o and x/χ/ħ onto h. Those
+# sounds stay contrastive in French, German or Spanish, which get no such merge.
 _PHONE_MAP = {
     "en": {
         "ᵻ": "ɪ",   # espeak's reduced /ɪ/
@@ -71,6 +73,15 @@ _PHONE_MAP = {
         "ə": "ø",
         "ɔ": "o",
     },
+    "id": {
+        "ɑ": "a",   # the English model hears Indonesian /a/ as ɑ or ʌ
+        "ʌ": "a",
+        "ɛ": "e",   # one e phoneme: espeak writes ɛ, the recognizer e (and vice versa)
+        "ɔ": "o",   # one o phoneme
+        "x": "h",   # h said (and heard) as a velar/uvular/pharyngeal fricative
+        "χ": "h",
+        "ħ": "h",
+    },
 }
 
 # Groups of phones close enough that substituting one for another is a minor error
@@ -85,6 +96,12 @@ _NEAR_PHONES = {
         {"ɪ", "i"}, {"ʊ", "u"}, {"ɛ", "æ"}, {"ʌ", "ɑ", "ə", "a"}, {"æ", "a"}, {"ɛ", "eɪ"},
         {"ð", "z", "d"}, {"θ", "s", "t"}, {"b", "p"}, {"d", "t"}, {"ɡ", "k"}, {"z", "s"},
         {"v", "f"}, {"ʒ", "ʃ"}, {"dʒ", "tʃ"}, {"n", "ŋ"}, {"h", "x"}, {"ɹ", "r"}, {"v", "w"},
+    ],
+    # The recognizer systematically voices Indonesian's unaspirated stops and maps the
+    # velar nasal to n word-finally; learners and raters do not count those as errors.
+    "id": [
+        {"p", "b"}, {"t", "d"}, {"k", "ɡ"}, {"s", "z"}, {"f", "v"}, {"ʃ", "ʒ"}, {"tʃ", "dʒ"},
+        {"n", "ŋ"}, {"ə", "a"},
     ],
 }
 

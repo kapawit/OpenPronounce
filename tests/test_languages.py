@@ -40,6 +40,38 @@ class TestIndonesian(unittest.TestCase):
         self.assertGreaterEqual(language.acoustic_good, LANGUAGES["en"].acoustic_good)
 
 
+class TestIndonesianPhones(unittest.TestCase):
+
+    def test_normalization_merges_symbol_variants(self):
+        # The English phone model spells Indonesian /a/, /e/, /o/, /h/ with other symbols.
+        for variant in ("ɑ", "ʌ"):
+            self.assertEqual(phones.normalize_phones([variant], lang="id"), ["a"])
+        self.assertEqual(phones.normalize_phones(["ɛ"], lang="id"), ["e"])
+        self.assertEqual(phones.normalize_phones(["ɔ"], lang="id"), ["o"])
+        for variant in ("x", "χ", "ħ"):
+            self.assertEqual(phones.normalize_phones([variant], lang="id"), ["h"])
+
+    def test_merges_are_indonesian_only(self):
+        self.assertEqual(phones.normalize_phones(["ɛ"], lang="de"), ["ɛ"])
+        self.assertEqual(phones.normalize_phones(["ɑ"], lang="fr"), ["ɑ"])
+        self.assertEqual(phones.normalize_phones(["ɑ"]), ["ɑ"])
+
+    def test_close_phones_are_a_minor_error(self):
+        self.assertEqual(phones._substitution_cost("p", "b", "id"), phones.NEAR_PHONE_COST)
+        self.assertEqual(phones._substitution_cost("t", "d", "id"), phones.NEAR_PHONE_COST)
+        self.assertEqual(phones._substitution_cost("k", "ɡ", "id"), phones.NEAR_PHONE_COST)
+        self.assertEqual(phones._substitution_cost("n", "ŋ", "id"), phones.NEAR_PHONE_COST)
+        # ...but a full error in a language without that rule.
+        self.assertEqual(phones._substitution_cost("p", "b", "de"), 1.0)
+
+    def test_voiced_stops_are_not_flagged_on_a_short_word(self):
+        # "kata" with both stops voiced: two close substitutions stay below the threshold.
+        self.assertEqual(phones.compare_phones(["ɡ", "a", "d", "a"], "kata", lang="id")["errors"], [])
+
+    def test_voiced_stops_are_flagged_without_the_indonesian_rule(self):
+        self.assertNotEqual(phones.compare_phones(["ɡ", "a", "d", "a"], "kata", lang="de")["errors"], [])
+
+
 class TestFrenchPhones(unittest.TestCase):
 
     def test_expected_phones_are_french(self):
