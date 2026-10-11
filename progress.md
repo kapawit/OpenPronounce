@@ -27,8 +27,9 @@ for the pronunciation scorer. POC first, then calibrate.
     labels, so it spells Indonesian /a/ as ɑ/ʌ, /e/ as ɛ, /o/ as ɔ and /h/ as
     x/χ/ħ.
   - `_NEAR_PHONES["id"]`: close pairs `{p,b} {t,d} {k,ɡ} {s,z} {f,v} {ʃ,ʒ}
-    {tʃ,dʒ} {n,ŋ} {ə,a}`. The recognizer systematically voices Indonesian's
-    unaspirated stops and maps final /ŋ/ to n.
+    {tʃ,dʒ} {n,ŋ}`. The recognizer systematically voices Indonesian's
+    unaspirated stops and maps final /ŋ/ to n. `/ə/` vs `/a/` is deliberately
+    *not* close: it is contrastive (`perang` "war" vs `parang` "machete").
 - `tests/test_languages.py` — `TestIndonesianPhones` (merges, language-awareness,
   close-phone cost, and a `kata` behavioral check that flags in German but not
   in Indonesian).
@@ -63,6 +64,11 @@ are installed, so `phonemizer` works). Torch from the CPU wheel index.
 - Residual false alarm: the diphthong /aʊ/ in `mau` is flagged (expected `maʊ`,
   heard `mau`/`u`). Beyond the conservative merge set; needs a diphthong rule.
 - No human-rated calibration data for Indonesian (English only).
+- The close-pair cost (`NEAR_PHONE_COST = 0.5`) means a *single* close
+  substitution is never flagged on any word of 2+ phones, so voicing minimal
+  pairs pass (`paku`/`baku`, `cari`/`jari`, `nasi`/`ngasi`). This is the
+  existing model, shared with English and French; it is not Indonesian-specific
+  and would need a global scoring change, so it is documented, not changed.
 - End-to-end run used the reference clip as the "learner" audio, so
   `acoustic_distance` is 0.0; a real non-native recording has not been tested.
 

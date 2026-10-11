@@ -64,12 +64,21 @@ class TestIndonesianPhones(unittest.TestCase):
         # ...but a full error in a language without that rule.
         self.assertEqual(phones._substitution_cost("p", "b", "de"), 1.0)
 
+    def test_schwa_and_a_are_not_treated_as_close(self):
+        # /ə/ vs /a/ changes meaning (perang "war" vs parang "machete"), so it is a full error.
+        self.assertEqual(phones._substitution_cost("ə", "a", "id"), 1.0)
+
     def test_voiced_stops_are_not_flagged_on_a_short_word(self):
         # "kata" with both stops voiced: two close substitutions stay below the threshold.
         self.assertEqual(phones.compare_phones(["ɡ", "a", "d", "a"], "kata", lang="id")["errors"], [])
 
     def test_voiced_stops_are_flagged_without_the_indonesian_rule(self):
-        self.assertNotEqual(phones.compare_phones(["ɡ", "a", "d", "a"], "kata", lang="de")["errors"], [])
+        # A fair control: Spanish phonemizes "kata" to the same /kata/ phones but has no
+        # near-phone rule, so the same voiced stops become full errors.
+        heard = ["ɡ", "a", "d", "a"]
+        self.assertEqual(phones.get_expected_phones("kata", lang="es")[1],
+                         phones.get_expected_phones("kata", lang="id")[1])
+        self.assertNotEqual(phones.compare_phones(heard, "kata", lang="es")["errors"], [])
 
 
 class TestFrenchPhones(unittest.TestCase):

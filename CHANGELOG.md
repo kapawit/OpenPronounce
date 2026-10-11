@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Added: Indonesian (`id`) as an experimental language (espeak voice `id`, `indonesian-nlp/wav2vec2-large-xlsr-indonesian` for transcription).
-- Added: Indonesian phone normalization (`openpronounce/phones.py`): `ɑ/ʌ→a`, `ɛ→e`, `ɔ→o`, `x/χ/ħ→h` merges and close-pair costs for voicing stops (`p/b`, `t/d`, `k/ɡ`), sibilants, `tʃ/dʒ`, `n/ŋ` and `ə/a`. This removes false alarms on native Indonesian audio (the English phone model voices unaspirated stops and spells the vowels differently). The acoustic baseline is still a placeholder and no human calibration exists yet.
+- Added: Indonesian phone normalization (`openpronounce/phones.py`): `ɑ/ʌ→a`, `ɛ→e`, `ɔ→o`, `x/χ/ħ→h` merges and close-pair costs for voicing stops (`p/b`, `t/d`, `k/ɡ`), sibilants, `tʃ/dʒ` and `n/ŋ`. This removes false alarms on native Indonesian audio (the English phone model voices unaspirated stops and spells the vowels differently). The acoustic baseline is still a placeholder and no human calibration exists yet.
 
 ## 0.3.0 (2026-08-15)
 

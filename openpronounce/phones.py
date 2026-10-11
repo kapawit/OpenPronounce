@@ -101,7 +101,7 @@ _NEAR_PHONES = {
     # velar nasal to n word-finally; learners and raters do not count those as errors.
     "id": [
         {"p", "b"}, {"t", "d"}, {"k", "ɡ"}, {"s", "z"}, {"f", "v"}, {"ʃ", "ʒ"}, {"tʃ", "dʒ"},
-        {"n", "ŋ"}, {"ə", "a"},
+        {"n", "ŋ"},
     ],
 }
 
