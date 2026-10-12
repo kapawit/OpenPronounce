@@ -27,16 +27,18 @@ that reliably, on a corpus with known ground truth, and to tune the decision.
 ## Goals
 
 - One command that, for a fixed Indonesian corpus of induced errors, reports
-  per-error-type **detection rate** and the **false-alarm rate on correct audio** in
-  the same run, so neither can be hidden behind the other.
+  per-error-type **localization rate** (the wrong sound pointed at) and the
+  **false-alarm rate on correct audio** in the same run, so neither can be hidden
+  behind the other.
 - A tuning sweep (same shape as `word_detection.py`: grid over the flag thresholds)
-  that produces the detection/false-alarm trade-off and recommends an operating
-  point, tuned on one half of the corpus and reported on the other.
+  that produces the localization/false-alarm trade-off and recommends an operating
+  point, tuned on one half of the corpus and reported on the other. Tuning is
+  recall-first.
 - A checked-in corpus definition (words + error transformations) so the numbers are
   reproducible and a regression is caught.
 - A fast subset for quick checks and a full run for the real number.
-- A place for a small set of real recordings to be dropped in and scored, as the
-  final sanity check.
+- A small set of real recordings, scored through the same path, as the final sanity
+  check that the synthetic result transfers.
 
 ## Non-goals
 
@@ -83,68 +85,80 @@ that reliably, on a corpus with known ground truth, and to tune the decision.
   recognize it (`recognize_phones`), score it against the *correct* word
   (`compare_phones`, `lang="id"`). `caught` = the correct word appears in
   `words_with_errors`; `localized` = the flagged phone's expected phone is the one
-  the misspelling changed.
+  the misspelling changed. **`localized` is the primary success measure** (the
+  product goal is to point at the wrong sound); `caught` is reported alongside it as
+  the weaker measure.
 - **Negatives.** The correct audio of every word in the corpus, scored against its
   own text, in the same run. A flag there is a false alarm.
-- **Metrics.** Per error type: detection rate (recall). Overall: recall, precision,
-  F1, false-alarm rate (flagged correct words / correct words), and the confidence
-  distribution of hits vs misses. Output a table: rows = error type, columns = word
-  length (2 / 3 / 4+), cells = caught/total.
+- **Metrics.** Per error type: localization rate (primary) and word-caught rate
+  (secondary). Overall: localization recall, word recall, precision, F1, false-alarm
+  rate (flagged correct words / correct words), and the confidence distribution of
+  hits vs misses. Output a table: rows = error type, columns = word length
+  (2 / 3 / 4+), cells = localized/total. **Tuning is recall-first**: among the points
+  in the grid, prefer the ones that maximize localization, then minimize false
+  alarms.
 - **Tuning.** Sweep `PHONE_ERROR_THRESHOLD` and `PHONE_ERROR_MIN_EDITS` over a grid
   (as `word_detection.py` does), on a tune half of the corpus; report on the
-  held-out half; print the points that reach a target recall with the fewest false
-  alarms, and vice versa. Optional second sweep over `NEAR_PHONE_COST` to see what
-  the "close pair" leniency costs in detection. (Builder call: the split is by base
-  word, not by cell, so the same word never appears in both halves under different
-  error types; a per-type held-out rate is printed only when that type has held-out
-  cells.)
+  held-out half; print the points that reach a target localization with the fewest
+  false alarms, and vice versa. Optional second sweep over `NEAR_PHONE_COST` to see
+  what the "close pair" leniency costs in detection. (Builder call: the split is by
+  base word, not by cell, so the same word never appears in both halves under
+  different error types; a per-type held-out rate is printed only when that type has
+  held-out cells.)
+- **Per-language operating point.** An Indonesian-specific tuning is allowed: the
+  benchmark may recommend adding per-language thresholds to `phones.py`
+  (`PHONE_ERROR_THRESHOLD`, `PHONE_ERROR_MIN_EDITS`, and optionally the cost
+  constants), so English/French behaviour is untouched. The default path stays
+  global when the Indonesian grid does not justify a separate value.
+- **Close pairs are reported, not targeted (yet).** Voicing p/b, t/d, k/g and
+  reduced diphthongs stay at the half-cost rule for this iteration. They appear as
+  explicit "not targeted by design" rows in the table. Whether to raise
+  `NEAR_PHONE_COST` toward 1 is a follow-up decided from the measured trade-off.
 - **Deliverables.**
   - `benchmarks/indonesian_errors.py`: `--run` (full corpus + negatives, prints the
     tables), `--tune`, `--report` (tune vs held-out + trade-off curve), `--assets`
     (a tiny fast subset for regression), `--real <dir>` (score a folder of
-    `*.wav` + sidecar text, no ground-truth errors required — just flags).
+    `*.wav` + sidecar text, no ground-truth errors required — just flags; used for
+    the real recordings below).
   - Corpus data: a data module or JSON next to the script listing the cells.
   - A `## Indonesian learner errors` section in `benchmarks/README.md` with the
     results table and the recommended operating point.
   - Unit tests for the corpus loader (every non-skipped pair really changes phones)
     and for the metric functions, so the benchmark itself is trustworthy.
+  - If the grid justifies it, a small change in `phones.py` adding per-language
+    thresholds (with tests) plus an update to the README; if not, a note saying the
+    global constants were kept and why.
+- **Real recordings.** The human partner will record a small set (some correct, some
+  deliberately wrong) as wav + text pairs. These are run through `--real` as a
+  sanity check that the synthetic numbers transfer; the outcome and the sample size
+  go in the README. This is validation, not a second benchmark.
 
 ## Success
 
-Proposed target to react to (this is the product call to confirm, not a fact):
+The product call is **recall-first** and the primary signal is **localization** (the
+right phone pointed at), not merely "the word was flagged":
 
-- On the held-out corpus, detection (recall) of the error types that matter for
-  learners **≥ 0.7**, while the false-alarm rate on correct audio stays **≤ 10 %**.
-- The per-error-type table makes the trade-off explicit, so "not detectable by
-  design" (e.g. a cost-0.5 voicing pair) is visible as a row, not hidden.
+- On the held-out corpus, localization of the error types that matter for learners
+  **≥ 0.7**, while the false-alarm rate on correct audio stays **≤ 10 %**.
+- The per-error-type table makes the trade-off explicit; close-pair errors (voicing,
+  reduced diphthongs) are a visible "not targeted by design" row, not hidden.
+- The real-recording sanity check does not contradict the synthetic result (roughly
+  the same flags on the same kind of error).
 
-## Open questions (for the human partner)
+## Resolved decisions (from the human partner)
 
-Ordered by how much they change what gets built.
-
-1. **Operating point.** For a teaching tool, is missing a mistake worse than a false
-   alarm? This sets whether tuning is recall-first or precision-first and whether the
-   success targets above are the right ones. The proposed ≥ 0.7 recall / ≤ 10 %
-   false-alarm pair is a product call, not derived.
-2. **Caught word vs localized phone.** The product goal is "point at the wrong
-   sound", but on single-word utterances "the word was flagged" is automatic once
-   anything is flagged, so recall 0.7 is reachable while pointing at the wrong phone.
-   Is the real target the *word* or the *phone*? If the phone, the tuning objective
-   and the success gate change.
-3. **Which error types are inside the target.** The spike's worst rows — voicing
-   p/b, t/d, k/g and reduced diphthongs — are close pairs the scorer deliberately
-   treats as half-cost, i.e. nearly invisible by design. Are those expected to be
-   caught (which means changing the scoring rule, e.g. `NEAR_PHONE_COST` toward 1,
-   at a false-alarm cost), or are they exempt and reported as a visible "not
-   detectable by design" row?
-4. **Blast radius.** Is an Indonesian-specific tuning acceptable (e.g. per-language
-   thresholds), or must the production constants stay global? `PHONE_ERROR_THRESHOLD`
-   etc. are module-level globals, so a per-language operating point is a real code
-   change; a global-only benchmark can only recommend and may never ship the number.
-5. **Real recordings.** Can a handful of real readings (the human partner, or a few
-   people — some correct, some deliberately wrong) be recorded to sanity-check the
-   synthetic result? If not, the benchmark is entirely synthetic and that limitation
-   becomes a headline caveat in the README, not a footnote.
+1. **Operating point.** Recall-first: missing a learner's mistake is worse than a
+   false alarm. Tuning maximizes localization within a false-alarm budget.
+2. **Caught word vs localized phone.** The **phone** is the target. `localized` is
+   the primary success measure and the tuning objective.
+3. **Close-pair errors.** Report them, do not target them yet. Keep the half-cost
+   rule this iteration; show them as "not targeted by design" rows; revisit
+   `NEAR_PHONE_COST` from the measured trade-off.
+4. **Blast radius.** Per-language tuning is allowed: an Indonesian operating point
+   may be added as per-language thresholds in `phones.py`, leaving English/French
+   untouched. Global stays the default when the grid does not justify a split.
+5. **Real recordings.** The human partner will record a small set (some correct,
+   some deliberately wrong) for the `--real` sanity check.
 
 ## Left to the builder
 
