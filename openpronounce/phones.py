@@ -44,6 +44,15 @@ FINAL_DELETION_COST = 0.5
 # confidence decreases linearly from 1 (posterior 0) to 0 (posterior at this value).
 PHONE_PLAUSIBLE_POSTERIOR = 0.05
 
+#: Per-language overrides of (threshold, min_edits); empty means the globals above apply.
+PHONE_THRESHOLDS = {}
+
+
+def phone_thresholds(lang=DEFAULT_LANGUAGE):
+    """``(PHONE_ERROR_THRESHOLD, PHONE_ERROR_MIN_EDITS)`` for ``lang``, or its override."""
+    return PHONE_THRESHOLDS.get(lang, (PHONE_ERROR_THRESHOLD, PHONE_ERROR_MIN_EDITS))
+
+
 # Recognizer tokens that are not phones of any supported language: Mandarin tone
 # numbers, aspiration marks and two-letter spellings of English diphthongs.
 _TOKEN_ALIASES = {"th": "t", "kh": "k", "ph": "p", "tʰ": "t", "kʰ": "k", "pʰ": "p",
@@ -553,11 +562,12 @@ def compare_phones(heard_phones, text_reference, lang=DEFAULT_LANGUAGE):
     else:
         phone_error_rate = 1.0 if heard else 0.0
 
+    threshold, min_edits = phone_thresholds(lang)
     errors = []
     words_with_errors = []
     for report in _word_reports(heard_phones, text_reference, lang):
         edits, length = report["weighted_edits"], len(report["expected"])
-        if report["distance"] and (edits / length >= PHONE_ERROR_THRESHOLD or edits >= PHONE_ERROR_MIN_EDITS):
+        if report["distance"] and (edits / length >= threshold or edits >= min_edits):
             errors.append({
                 "position": report["position"],
                 "word": report["word"],
@@ -565,7 +575,7 @@ def compare_phones(heard_phones, text_reference, lang=DEFAULT_LANGUAGE):
                 "actual": "".join(report["actual"]),
                 "actual_word": "",
                 "phone_distance": report["distance"],
-                "confidence": round(min(1.0, max(edits / length, edits / PHONE_ERROR_MIN_EDITS)), 3),
+                "confidence": round(min(1.0, max(edits / length, edits / min_edits)), 3),
                 "phones": [dict(p, confidence=round(p["confidence"], 3)) for p in report["phones"]],
             })
             words_with_errors.append(report["word"])

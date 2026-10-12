@@ -121,6 +121,18 @@ class TestIndonesianPhones(unittest.TestCase):
                          phones.get_expected_phones("kata", lang="id")[1])
         self.assertNotEqual(phones.compare_phones(heard, "kata", lang="es")["errors"], [])
 
+    def test_per_language_threshold_override(self):
+        from openpronounce import phones
+        default = (phones.PHONE_ERROR_THRESHOLD, phones.PHONE_ERROR_MIN_EDITS)
+        self.assertEqual(phones.phone_thresholds("id"), default)
+        self.assertEqual(phones.phone_thresholds("en"), default)
+        phones.PHONE_THRESHOLDS["zz"] = (0.1, 1)
+        try:
+            self.assertEqual(phones.phone_thresholds("zz"), (0.1, 1))
+            self.assertEqual(phones.phone_thresholds("en"), default)
+        finally:
+            del phones.PHONE_THRESHOLDS["zz"]
+
 
 class TestFrenchPhones(unittest.TestCase):
 
