@@ -142,3 +142,110 @@ def corpus_cells(lang=ID_LANG):
                           "word_len": len(expected_phones(correct, lang)),
                           "tune": is_tune_word(correct), "changed": changed})
     return cells, stats
+
+
+def build_rows(cells, recognize, lang=ID_LANG):
+    """Score every cell, add one negative per distinct correct word, count failures."""
+    rows, stats = [], {"failed": 0, "skipped": 0, "empty": 0}
+    seen = set()
+    for cell in cells:
+        try:
+            heard = recognize(cell["wrong"])
+        except Exception:  # network/JIT failure: skip the cell, never abort the run
+            logger.warning("recognize failed for %r", cell["wrong"], exc_info=True)
+            stats["failed"] += 1
+            continue
+        row = score_cell(cell["error_type"], cell["correct"], cell["wrong"], heard, lang)
+        if row is None:
+            stats["skipped"] += 1
+            continue
+        rows.append(row)
+        if cell["correct"] not in seen:
+            seen.add(cell["correct"])
+            try:
+                negative_heard = recognize(cell["correct"])
+            except Exception:
+                logger.warning("recognize failed for %r", cell["correct"], exc_info=True)
+                stats["failed"] += 1
+                continue
+            negative = negative_row(cell["correct"], negative_heard, lang)
+            if negative is not None:
+                rows.append(negative)
+    return rows, stats
+
+
+def save_rows(rows, path=ROW_CACHE):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(rows, f)
+
+
+def load_rows(path=ROW_CACHE):
+    with open(path) as f:
+        return json.load(f)
+
+
+def _recognizer(lang, threads):
+    import torch
+
+    torch.set_num_threads(threads)
+    from openpronounce import audio
+
+    def recognize(word):
+        return phones.recognize_phones(audio.load(audio.text2speech(word, lang=lang)), lang=lang)
+
+    return recognize
+
+
+def run(args):
+    cells, stats = corpus_cells(args.lang)
+    rows, build_stats = build_rows(cells, _recognizer(args.lang, args.threads), args.lang)
+    for key in ("failed", "skipped", "empty"):
+        build_stats[key] += stats[key]
+    save_rows(rows, args.out)
+    print(f"{len(cells)} cells, {sum(1 for r in rows if r['bad'])} scored, "
+          f"{sum(1 for r in rows if not r['bad'])} negatives -> {args.out}")
+    print(f"skipped (identical phones) {build_stats['skipped']}, empty {build_stats['empty']}, "
+          f"failed {build_stats['failed']}")
+
+
+def assets(args):
+    """Fast live check on the first two cells of a few error types (regression smoke)."""
+    recognize = _recognizer(args.lang, args.threads)
+    sample = [c for t in ("voicing", "e_to_i") for c in CORPUS[t][:2]]
+    cells, _ = corpus_cells(args.lang)
+    lookup = {(c["correct"], c["wrong"]): c for c in cells}
+    for correct, wrong in sample:
+        cell = lookup.get((correct, wrong))
+        if cell is None:
+            print(f"{correct:8s} -> {wrong:8s}  SKIP (same phones)")
+            continue
+        row = score_cell(cell["error_type"], correct, wrong, recognize(wrong), args.lang)
+        print(f"{correct:8s} -> {wrong:8s}  localized={row['localized']} bad={row['bad']}")
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--run", action="store_true", help="recognize, score and cache the rows")
+    mode.add_argument("--tune", action="store_true", help="threshold grid on the tuning half")
+    mode.add_argument("--report", action="store_true", help="per-type table, tune vs held-out")
+    mode.add_argument("--assets", action="store_true", help="fast live subset")
+    mode.add_argument("--real", metavar="DIR", help="score real wav+txt pairs under DIR")
+    parser.add_argument("--lang", default=ID_LANG)
+    parser.add_argument("--threads", type=int, default=6)
+    parser.add_argument("--out", default=ROW_CACHE)
+    args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stderr)
+    logging.getLogger("phonemizer").setLevel(logging.ERROR)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    if args.run:
+        run(args)
+    elif args.assets:
+        assets(args)
+    else:
+        print("mode not implemented yet")  # replaced in Task 6 and Task 7
+
+
+if __name__ == "__main__":
+    main()

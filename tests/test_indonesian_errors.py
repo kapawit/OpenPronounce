@@ -140,3 +140,42 @@ class TestCells:
         cells, _ = ie.corpus_cells()
         flags = {c["tune"] for c in cells if c["correct"] == "kecil"}
         assert len(flags) <= 1
+
+
+class TestBuildRows:
+    def test_build_rows_adds_one_negative_per_correct_word(self):
+        cells = [
+            {"error_type": "voicing", "correct": "pagi", "wrong": "bagi",
+             "word_len": 4, "tune": ie.is_tune_word("pagi"), "changed": ["p"]},
+            {"error_type": "e_to_i", "correct": "enak", "wrong": "inak",
+             "word_len": 4, "tune": ie.is_tune_word("enak"), "changed": ["e"]},
+        ]
+
+        def fake_recognize(word):
+            return {"bagi": ie.expected_phones("bagi"), "inak": ie.expected_phones("inak"),
+                    "pagi": ie.expected_phones("pagi"), "enak": ie.expected_phones("enak")}[word]
+
+        rows, stats = ie.build_rows(cells, fake_recognize)
+        positives = [r for r in rows if r["bad"]]
+        negatives = [r for r in rows if not r["bad"]]
+        assert len(positives) == 2
+        assert sorted(r["correct"] for r in negatives) == ["enak", "pagi"]
+        assert stats["failed"] == 0
+
+    def test_a_failing_recognizer_does_not_abort_the_run(self):
+        cells = [{"error_type": "voicing", "correct": "pagi", "wrong": "bagi",
+                  "word_len": 4, "tune": True, "changed": ["p"]}]
+
+        def broken(word):
+            raise RuntimeError("network down")
+
+        rows, stats = ie.build_rows(cells, broken)
+        assert rows == [] and stats["failed"] >= 1
+
+    def test_rows_round_trip_through_json(self, tmp_path):
+        cells = [{"error_type": "voicing", "correct": "pagi", "wrong": "bagi",
+                  "word_len": 4, "tune": True, "changed": ["p"]}]
+        rows, _ = ie.build_rows(cells, lambda w: ["b", "a", "ɡ", "i"])
+        path = str(tmp_path / "rows.json")
+        ie.save_rows(rows, path)
+        assert ie.load_rows(path) == rows
