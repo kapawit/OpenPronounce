@@ -87,11 +87,12 @@ are installed, so `phonemizer` works). Torch from the CPU wheel index.
 - Flagged-word sample (same 41 gTTS words, `compare_phones` after steps 1+2):
   **0/41 words flagged** (single words and the tricky diphthong words `mau`,
   `pisau`, `kerbau`, `pantai`, `sampai`, `pulau`).
-- Sentence samples (36 gTTS sentences across two sets: greetings, questions,
-  numbers, reduplication, loanwords, `ng`/`ny`, final glottal, diphthongs):
-  **0/36 flagged**. Word-boundary controls `"Dua ular itu."` (PER 0.00) and
-  `"Kota udara itu."` (PER 0.08) are clean, confirming the per-word diphthong
-  merge and the glottal-drop do not bleed across words.
+- Sentence samples (56 gTTS sentences across three sets: greetings, questions,
+  numbers, reduplication, loanwords, `ng`/`ny`, final glottal, diphthongs,
+  daily conversation): **0/56 flagged**. Word-boundary controls
+  `"Dua ular itu."` (PER 0.00) and `"Kota udara itu."` (PER 0.08) are clean,
+  confirming the per-word diphthong merge and the glottal-drop do not bleed
+  across words.
 - Full pipeline on a gTTS Indonesian clip (`compare_audio_with_text`, lang=`id`):
 
   ```
