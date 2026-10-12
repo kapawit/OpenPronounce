@@ -100,3 +100,43 @@ class TestFlagRule:
         assert ie.is_flagged(ratio, 0.4, 2) is True      # 1.0 / 2 = 0.5 >= 0.4
         clean = {"distance": 0, "expected": ["m", "a"], "weighted_edits": 0.0}
         assert ie.is_flagged(clean, 0.4, 2) is False     # a perfect word is never flagged
+
+
+class TestCells:
+    def test_score_cell_localizes_a_substitution(self):
+        # pagi -> bagi: we hear espeak's phones of "bagi" scored against the correct "pagi".
+        row = ie.score_cell("voicing", "pagi", "bagi", ie.expected_phones("bagi"))
+        assert row["bad"] is True
+        assert row["error_type"] == "voicing"
+        assert row["changed"] == ["p"]
+        assert row["localized"] is True
+
+    def test_score_cell_returns_none_when_phones_do_not_change(self):
+        assert ie.score_cell("schwa_to_a", "enak", "enak", ie.expected_phones("enak")) is None
+
+    def test_corpus_cells_skips_identical_pairs_and_counts_them(self):
+        cells, stats = ie.corpus_cells()
+        assert stats["skipped"] >= 0
+        assert all(c["correct"] != "" for c in cells)
+        # every scored cell carries a stable tune flag and a non-empty changed list
+        for c in cells:
+            assert c["tune"] == ie.is_tune_word(c["correct"])
+            assert c["changed"]
+
+    def test_every_type_has_at_least_ten_cells(self):
+        cells, _ = ie.corpus_cells()
+        counts = {}
+        for c in cells:
+            counts[c["error_type"]] = counts.get(c["error_type"], 0) + 1
+        for name in corpus.ERROR_TYPES:
+            assert counts.get(name, 0) >= 10, (name, counts.get(name, 0))
+
+    def test_empty_phonemization_returns_none(self):
+        # A word espeak gives no phones for must not crash the run or divide by zero.
+        assert ie.negative_row("", ["a"]) is None
+
+    def test_reused_base_word_is_on_one_side(self):
+        # "kecil" appears in schwa_to_a and e_to_i; both cells must share the tune flag.
+        cells, _ = ie.corpus_cells()
+        flags = {c["tune"] for c in cells if c["correct"] == "kecil"}
+        assert len(flags) <= 1

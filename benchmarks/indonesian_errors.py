@@ -18,6 +18,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import Levenshtein  # noqa: E402
+from indonesian_errors_corpus import CORPUS, ERROR_TYPES  # noqa: E402
 
 from openpronounce import phones  # noqa: E402
 
@@ -92,3 +93,52 @@ def metrics(rows, flag):
         "far": fp / n_neg if n_neg else 0.0,
         "f1": f1,
     }
+
+
+def _row(report, error_type, correct, wrong, changed, bad):
+    length = len(report["expected"])
+    return {
+        "error_type": error_type, "correct": correct, "wrong": wrong, "word_len": length,
+        "tune": is_tune_word(correct), "bad": bad,
+        "localized": localized(report, changed) if bad else False,
+        "changed": changed, "distance": report["distance"], "expected": report["expected"],
+        "actual": report["actual"], "weighted_edits": report["weighted_edits"],
+        "phones": report["phones"],
+    }
+
+
+def score_cell(error_type, correct, wrong, heard, lang=ID_LANG):
+    """Score one induced error: ``heard`` is what the recognizer produced for the misspelling."""
+    changed = changed_expected_phones(correct, wrong, lang)
+    if not changed:
+        return None
+    reports = phones._word_reports(heard, correct, lang)
+    if not reports or not reports[0]["expected"]:
+        return None
+    return _row(reports[0], error_type, correct, wrong, changed, bad=True)
+
+
+def negative_row(word, heard, lang=ID_LANG):
+    """Score correct audio against its own text; any later flag is a false alarm."""
+    reports = phones._word_reports(heard, word, lang)
+    if not reports or not reports[0]["expected"]:
+        return None
+    return _row(reports[0], "none", word, word, [], bad=False)
+
+
+def corpus_cells(lang=ID_LANG):
+    """Every scoreable positive cell plus skip statistics (identical phones, empty expected)."""
+    cells, stats = [], {"skipped": 0, "empty": 0}
+    for error_type in ERROR_TYPES:
+        for correct, wrong in CORPUS[error_type]:
+            changed = changed_expected_phones(correct, wrong, lang)
+            if not changed:
+                stats["skipped"] += 1
+                continue
+            if not expected_phones(correct, lang):
+                stats["empty"] += 1
+                continue
+            cells.append({"error_type": error_type, "correct": correct, "wrong": wrong,
+                          "word_len": len(expected_phones(correct, lang)),
+                          "tune": is_tune_word(correct), "changed": changed})
+    return cells, stats
