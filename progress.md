@@ -129,6 +129,16 @@ are installed, so `phonemizer` works). Torch from the CPU wheel index.
   correct audio (recognizer drops final `ŋ`, splits diphthongs, unvoices stops);
   the per-word `errors` are the signal users see. Not changed here.
 
+### Calibration step 3 (synthetic benchmark)
+
+- `benchmarks/indonesian_errors.py`: synthetic Indonesian learner-error corpus (60 cells,
+  6 error types, gTTS + Wav2Vec2 recognizer), tune/held-out split, threshold grid search.
+- `benchmarks/results/indonesian-errors-rows.json`: cached row-level results.
+- Held-out localization_recall: 0.029 (1/35), FAR: 0.000. Success target (>=0.70 /
+  <=0.10): NOT MET.
+- No Indonesian operating point adopted: no grid point within FAR<=0.10 improves over
+  globals (held-out loc_recall 0.029). Real learner recordings needed to calibrate.
+
 ## Next steps
 
 1. (done) Sample espeak `id` vs the recognizer; add `_PHONE_MAP` / `_NEAR_PHONES`.
@@ -136,11 +146,13 @@ are installed, so `phonemizer` works). Torch from the CPU wheel index.
    vowel+glide, map the rhotic variants, drop inserted glottal stops, and treat
    pepet `/ə/` as close to `/a/`/`/e/`, to clear the `mau`/`ular`/`pisau`/
    `televisi`-type false alarms.
-3. Measure the acoustic baseline and set `acoustic_good` from data — blocked on a
-   second Indonesian voice (Piper has no `id` voice today).
+3. (done) Synthetic benchmark: rule does not improve over globals on induced errors;
+   real recordings needed for calibration.
 4. Collect native readings for human calibration, then tune the flag thresholds
    (the single-substitution miss above) with that data.
-5. Optional: a Piper voice for `id` if one appears upstream.
+5. Measure the acoustic baseline and set `acoustic_good` from data — blocked on a
+   second Indonesian voice (Piper has no `id` voice today).
+6. Optional: a Piper voice for `id` if one appears upstream.
 
 ## Reproduce
 

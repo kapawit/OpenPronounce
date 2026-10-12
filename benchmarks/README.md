@@ -326,3 +326,89 @@ Bundled samples (`--assets`), before -> after: `developer.wav` none -> none;
   alarms; the posterior of the expected phone (GOP-like) and the phone-pair costs do.
   Next steps: a phonetically weighted alignment (the costs inside the DP, not only after
   it), and a small classifier on the per-word features against the human labels.
+
+## Indonesian learner errors
+
+`benchmarks/indonesian_errors.py` measures localization recall and false-alarm rate on a
+synthetic corpus of Indonesian learner errors (induced via gTTS + Wav2Vec2 recognizer).
+
+### How to run
+
+```bash
+# recognize + score + cache (one-time, network + model download)
+.venv/bin/python benchmarks/indonesian_errors.py --run
+
+# per-type table with tune vs held-out
+.venv/bin/python benchmarks/indonesian_errors.py --report
+
+# threshold grid on tuning half, held-out reported
+.venv/bin/python benchmarks/indonesian_errors.py --tune
+
+# score real wav+txt pairs (when available)
+.venv/bin/python benchmarks/indonesian_errors.py --real DIR
+```
+
+### Corpus
+
+60 induced-error cells across 6 error types (voicing, final_dropped, ng_to_n,
+schwa_to_a, diphthong_reduced, e_to_i), each paired with a correct-audio negative.
+Split: 25 tune / 35 held-out (stable SHA1 parity hash).
+
+Close-pair rows not targeted: `voicing`, `ng_to_n`, `schwa_to_a`, `diphthong_reduced`
+(these represent native-like variation, not learner errors).
+
+### Per-type held-out localization (2026-10-12)
+
+| error_type        | len2 | len3 | len4+ | total | target     |
+|-------------------|-----:|-----:|------:|------:|------------|
+| voicing           |    - |    - |   5/6 |   5/6 | not-targeted |
+| final_dropped     |    - |    - |   5/5 |   5/5 | targeted   |
+| ng_to_n           |    - |    - |   5/5 |   5/5 | not-targeted |
+| schwa_to_a        |    - |    - |   7/7 |   7/7 | not-targeted |
+| diphthong_reduced |    - |    1/1 |   4/4 |   5/5 | not-targeted |
+| e_to_i            |    - |    - |   7/7 |   7/7 | targeted   |
+
+### Tune / held-out overall (globals: threshold=0.40, min_edits=2)
+
+| split     | n_pos | n_neg | loc_recall | word_recall | precision | far |
+|-----------|------:|------:|-----------:|------------:|----------:|----:|
+| tune      |    25 |    24 |      0.160 |       0.160 |     0.667 | 0.083 |
+| held-out  |    35 |    31 |      0.029 |       0.029 |     1.000 | 0.000 |
+
+Success target (`loc_recall >= 0.70` and `far <= 0.10`): **NOT MET**.
+
+### Tune grid (best at each FAR budget)
+
+| FAR budget | threshold | min_edits | tune loc_recall | tune far | held-out loc_recall | held-out far |
+|-----------:|----------:|----------:|---------------:|---------:|-------------------:|------------:|
+|    <= 0.05 |      0.70 |         2 |           0.120 |    0.042 |               0.029 |       0.000 |
+|    <= 0.10 |      0.40 |         2 |           0.160 |    0.083 |               0.029 |       0.000 |
+|    <= 0.20 |      0.25 |         1 |           0.280 |    0.125 |               0.143 |       0.065 |
+|    <= 0.30 |      0.20 |         1 |           0.400 |    0.208 |               0.229 |       0.129 |
+
+### Operating point
+
+**No Indonesian-specific operating point adopted.** The grid at `far <= 0.10` does not improve
+over the globals (held-out localization_recall = 0.029 with both). No grid point reaches
+`loc_recall >= 0.70`. `PHONE_THRESHOLDS["id"]` remains empty; Indonesian uses the global
+defaults `(PHONE_ERROR_THRESHOLD=0.4, PHONE_ERROR_MIN_EDITS=2)`.
+
+Human calibration data (real learner recordings with rated errors) is needed to determine
+whether a better operating point exists for Indonesian.
+
+### Synthetic-corpus caveat
+
+The benchmark induces errors by running gTTS + recognizer on misspelled text. This does not
+capture the full spectrum of non-native phonetic patterns (coarticulation, prosodic errors,
+allophonic variation) that appear in real learner speech. The low held-out recall suggests
+the induced-error patterns are not representative of what the flagging rule can catch.
+
+### Real-recording check
+
+**PENDING** — no real Indonesian learner recordings with human-rated errors are available yet.
+
+To run when recordings are available:
+```bash
+.venv/bin/python benchmarks/indonesian_errors.py --real DIR
+```
+where `DIR` contains `.wav` files and sibling `.txt` files with the reference text.

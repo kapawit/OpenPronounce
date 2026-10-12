@@ -200,7 +200,7 @@ def _recognizer(lang, threads):
 def run(args):
     cells, stats = corpus_cells(args.lang)
     rows, build_stats = build_rows(cells, _recognizer(args.lang, args.threads), args.lang)
-    for key in ("failed", "skipped", "empty"):
+    for key in ("skipped", "empty"):
         build_stats[key] += stats[key]
     save_rows(rows, args.out)
     print(f"{len(cells)} cells, {sum(1 for r in rows if r['bad'])} scored, "
