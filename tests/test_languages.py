@@ -35,7 +35,7 @@ class TestIndonesian(unittest.TestCase):
         language = LANGUAGES["id"]
         self.assertEqual(language.code, "id")
         self.assertEqual(language.espeak, "id")
-        self.assertEqual(language.asr_model, "indonesian-nlp/wav2vec2-large-xlsr-indonesian")
+        self.assertEqual(language.asr_model, "indonesian-nlp/wav2vec2-indonesian-javanese-sundanese")
         self.assertEqual(language.name, "Indonesian")
         self.assertGreaterEqual(language.acoustic_good, LANGUAGES["en"].acoustic_good)
 

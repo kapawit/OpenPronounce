@@ -1,18 +1,28 @@
 # OpenPronounce web app (FastAPI + UI), CUDA build.
 #
-#   docker build -f Dockerfile.gpu -t openpronounce:gpu .
-#   docker run --gpus all -p 8000:8000 openpronounce:gpu
+# Build:
+#   podman build --build-arg HF_TOKEN=$(grep HF_TOKEN .env | cut -d= -f2) \
+#                -f Dockerfile.gpu -t openpronounce:gpu .
 #
-# Requires the NVIDIA Container Toolkit on the host. Models are downloaded at build
-# time; inference runs on the GPU when one is visible (OPENPRONOUNCE_DEVICE=cpu to force CPU).
-FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+# Save image to /mnt/data/docker-images/:
+#   mkdir -p /mnt/data/docker-images
+#   podman save openpronounce:gpu | gzip > /mnt/data/docker-images/openpronounce-gpu.tar.gz
+#
+# Run:
+#   podman run --gpus all -p 8000:8000 openpronounce:gpu
+#
+# Requires the NVIDIA Container Toolkit on the host. Models are downloaded at build time.
+FROM docker.io/nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+ARG HF_TOKEN
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     HF_HOME=/models \
     PORT=8000 \
-    DEBIAN_FRONTEND=noninteractive
+    DEBIAN_FRONTEND=noninteractive \
+    HF_TOKEN=${HF_TOKEN}
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 python3-pip python3-venv ffmpeg espeak-ng libsndfile1 \
