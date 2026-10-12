@@ -179,3 +179,32 @@ class TestBuildRows:
         path = str(tmp_path / "rows.json")
         ie.save_rows(rows, path)
         assert ie.load_rows(path) == rows
+
+
+class TestTables:
+    def rows(self):
+        # One localized positive, one missed positive, one false alarm.
+        return [
+            {"error_type": "voicing", "bad": True, "localized": True, "tune": True,
+             "distance": 1, "word_len": 4, "expected": ["p", "a", "ɡ", "i"],
+             "weighted_edits": 1.0, "phones": [{"expected": "p", "heard": "b", "confidence": 0.5}]},
+            {"error_type": "e_to_i", "bad": True, "localized": False, "tune": True,
+             "distance": 1, "word_len": 4, "expected": ["e", "n", "a", "k"],
+             "weighted_edits": 0.5, "phones": [{"expected": "e", "heard": "i", "confidence": 0.5}]},
+            {"error_type": "none", "bad": False, "localized": False, "tune": True,
+             "distance": 0, "word_len": 4, "expected": ["p", "a", "ɡ", "i"],
+             "weighted_edits": 0.0, "phones": []},
+        ]
+
+    def test_report_table_contains_every_error_type_and_buckets(self):
+        out = ie.report_table(self.rows())
+        assert "voicing" in out and "e_to_i" in out and "overall" in out
+        assert "len4+" in out and "1/1" in out  # voicing localized in the >=4 bucket
+
+    def test_report_table_marks_non_targeted_types(self):
+        out = ie.report_table(self.rows())
+        assert "voicing" in out and "not-targeted" in out
+
+    def test_tune_table_reports_a_best_point_per_budget(self):
+        out = ie.tune_table(self.rows(), budgets=(0.0, 1.0))
+        assert "far<=" in out and "localization_recall" in out

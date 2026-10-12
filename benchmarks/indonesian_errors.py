@@ -224,6 +224,84 @@ def assets(args):
         print(f"{correct:8s} -> {wrong:8s}  localized={row['localized']} bad={row['bad']}")
 
 
+def _flag(threshold, min_edits):
+    def flag(row):
+        return is_flagged(row, threshold, min_edits)
+    return flag
+
+
+def _bucket(word_len):
+    if word_len <= 2:
+        return "len2"
+    if word_len == 3:
+        return "len3"
+    return "len4+"
+
+
+def tune_table(rows, top=15, budgets=(0.05, 0.1, 0.2, 0.3)):
+    """Recall-first: best localization per false-alarm budget, then the top points by F1."""
+    lines = []
+    for budget in budgets:
+        points = [(metrics(rows, _flag(t, m)), t, m) for t, m in GRID]
+        eligible = [p for p in points if p[0]["far"] <= budget]
+        if not eligible:
+            lines.append(f"far<={budget:.2f}: no point in the grid")
+            continue
+        m, t, me = max(eligible, key=lambda p: (p[0]["localization_recall"], -p[0]["far"]))
+        lines.append(f"far<={budget:.2f}: threshold={t:.2f} min_edits={me} "
+                     f"localization_recall={m['localization_recall']:.3f} far={m['far']:.3f} "
+                     f"precision={m['precision']:.3f}")
+    lines.append("")
+    lines.append(f"{'threshold':>9} {'min_edits':>9} {'loc_recall':>10} {'word_recall':>11} "
+                 f"{'P':>6} {'far':>6} {'F1':>6}")
+    ranked = sorted(((metrics(rows, _flag(t, m)), t, m) for t, m in GRID),
+                    key=lambda p: (-p[0]["f1"], p[0]["far"]))
+    for m, t, me in ranked[:top]:
+        lines.append(f"{t:9.2f} {me:9} {m['localization_recall']:10.3f} {m['word_recall']:11.3f} "
+                     f"{m['precision']:6.3f} {m['far']:6.3f} {m['f1']:6.3f}")
+    return "\n".join(lines)
+
+
+def report_table(rows):
+    """Localization per error type and word-length bucket, then overall metrics per split."""
+    types = [r["error_type"] for r in rows if r["bad"]]
+    ordered = list(dict.fromkeys(types))
+    lines = [f"{'error_type':20} {'len2':>7} {'len3':>7} {'len4+':>7} {'total':>7}  target"]
+    for error_type in ordered:
+        positives = [r for r in rows if r["bad"] and r["error_type"] == error_type]
+        cells, hit = [], 0
+        for bucket in ("len2", "len3", "len4+"):
+            group = [r for r in positives if _bucket(r["word_len"]) == bucket]
+            hits = sum(1 for r in group if r["localized"])
+            cells.append(f"{hits}/{len(group)}" if group else "-")
+            hit += hits
+        mark = "not-targeted" if error_type in NOT_TARGETED else "targeted"
+        lines.append(f"{error_type:20} {cells[0]:>7} {cells[1]:>7} {cells[2]:>7} "
+                     f"{f'{hit}/{len(positives)}':>7}  {mark}")
+    lines.append("")
+    current = _flag(phones.PHONE_ERROR_THRESHOLD, phones.PHONE_ERROR_MIN_EDITS)
+    for split, keep in (("tune", True), ("held-out", False)):
+        subset = [r for r in rows if r["tune"] == keep]
+        m = metrics(subset, current)
+        lines.append(f"overall {split:9} n_pos={m['n_pos']} n_neg={m['n_neg']} "
+                     f"localization_recall={m['localization_recall']:.3f} word_recall={m['word_recall']:.3f} "
+                     f"precision={m['precision']:.3f} far={m['far']:.3f}")
+    for name, want in (("hit", True), ("miss", False)):
+        confidences = [max((p["confidence"] for p in r["phones"]), default=0.0)
+                       for r in rows if r["bad"] and r["localized"] == want]
+        mean = sum(confidences) / len(confidences) if confidences else 0.0
+        lines.append(f"mean phone confidence, {name}: {mean:.3f} (n={len(confidences)})")
+    return "\n".join(lines)
+
+
+def tune(args):
+    print(tune_table(load_rows(args.out)))
+
+
+def report(args):
+    print(report_table(load_rows(args.out)))
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     mode = parser.add_mutually_exclusive_group(required=True)
@@ -241,6 +319,10 @@ def main(argv=None):
     logging.getLogger("httpx").setLevel(logging.WARNING)
     if args.run:
         run(args)
+    elif args.tune:
+        tune(args)
+    elif args.report:
+        report(args)
     elif args.assets:
         assets(args)
     else:
