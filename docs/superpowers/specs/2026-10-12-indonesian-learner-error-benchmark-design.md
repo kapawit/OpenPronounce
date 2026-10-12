@@ -75,8 +75,10 @@ that reliably, on a corpus with known ground truth, and to tune the decision.
   error_type)`. Starter error types (the spike's set): voicing p→b, t→d, k→g; final
   consonant dropped; ŋ→n; ny ɲ→n; schwa→a; a→schwa; e→i; o→u; diphthong reduced
   (aʊ/aɪ/oɪ → one vowel); r dropped or →ɹ; schwa inserted between consonants;
-  syllable dropped. Each error type gets N words (start N=8-12, spread over word
-  lengths 2, 3, 4+ phones) so the per-type numbers are not one lucky word.
+  syllable dropped. Each error type gets 12-20 words, spread over word lengths 2, 3,
+  4+ phones. (Builder call: N that large because a 50 % held-out split leaves a
+  per-type rate moving in ~5-10 point steps; the report prints counts next to every
+  rate so a noisy cell is visible.)
 - **Running a cell.** Synthesize the *misspelled* word with gTTS (`lang="id"`),
   recognize it (`recognize_phones`), score it against the *correct* word
   (`compare_phones`, `lang="id"`). `caught` = the correct word appears in
@@ -92,7 +94,10 @@ that reliably, on a corpus with known ground truth, and to tune the decision.
   (as `word_detection.py` does), on a tune half of the corpus; report on the
   held-out half; print the points that reach a target recall with the fewest false
   alarms, and vice versa. Optional second sweep over `NEAR_PHONE_COST` to see what
-  the "close pair" leniency costs in detection.
+  the "close pair" leniency costs in detection. (Builder call: the split is by base
+  word, not by cell, so the same word never appears in both halves under different
+  error types; a per-type held-out rate is printed only when that type has held-out
+  cells.)
 - **Deliverables.**
   - `benchmarks/indonesian_errors.py`: `--run` (full corpus + negatives, prints the
     tables), `--tune`, `--report` (tune vs held-out + trade-off curve), `--assets`
@@ -115,16 +120,31 @@ Proposed target to react to (this is the product call to confirm, not a fact):
 
 ## Open questions (for the human partner)
 
+Ordered by how much they change what gets built.
+
 1. **Operating point.** For a teaching tool, is missing a mistake worse than a false
-   alarm? This sets whether tuning is recall-first or precision-first (and the
-   success targets above).
-2. **Real recordings.** Can a handful of real readings (the human partner, or a few
+   alarm? This sets whether tuning is recall-first or precision-first and whether the
+   success targets above are the right ones. The proposed ≥ 0.7 recall / ≤ 10 %
+   false-alarm pair is a product call, not derived.
+2. **Caught word vs localized phone.** The product goal is "point at the wrong
+   sound", but on single-word utterances "the word was flagged" is automatic once
+   anything is flagged, so recall 0.7 is reachable while pointing at the wrong phone.
+   Is the real target the *word* or the *phone*? If the phone, the tuning objective
+   and the success gate change.
+3. **Which error types are inside the target.** The spike's worst rows — voicing
+   p/b, t/d, k/g and reduced diphthongs — are close pairs the scorer deliberately
+   treats as half-cost, i.e. nearly invisible by design. Are those expected to be
+   caught (which means changing the scoring rule, e.g. `NEAR_PHONE_COST` toward 1,
+   at a false-alarm cost), or are they exempt and reported as a visible "not
+   detectable by design" row?
+4. **Blast radius.** Is an Indonesian-specific tuning acceptable (e.g. per-language
+   thresholds), or must the production constants stay global? `PHONE_ERROR_THRESHOLD`
+   etc. are module-level globals, so a per-language operating point is a real code
+   change; a global-only benchmark can only recommend and may never ship the number.
+5. **Real recordings.** Can a handful of real readings (the human partner, or a few
    people — some correct, some deliberately wrong) be recorded to sanity-check the
    synthetic result? If not, the benchmark is entirely synthetic and that limitation
-   goes in the README.
-3. **Blast radius.** Is an Indonesian-specific tuning acceptable (e.g. per-language
-   thresholds), or must the production constants stay global? This changes whether
-   the recommended operating point can be adopted at all.
+   becomes a headline caveat in the README, not a footnote.
 
 ## Left to the builder
 
