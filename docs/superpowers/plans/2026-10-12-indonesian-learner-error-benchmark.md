@@ -720,8 +720,9 @@ git commit -m "feat(bench): add Indonesian error runner, cache and CLI skeleton"
 **Interfaces:**
 - Consumes: `load_rows`, `GRID`, `is_flagged`, `metrics` (Tasks 3, 5); `NOT_TARGETED`.
 - Produces:
-  - `tune_table(rows, top=15, budgets=(0.05, 0.1, 0.2, 0.3)) -> str` — recall-first: for each false-alarm budget, the grid point with the highest localization recall, plus the global top-`top` by `f1`.
-  - `report_table(rows) -> str` — per-error-type rows with one `localized/total` cell per word-length bucket (`len2` = <=2 phones, `len3`, `len4+`), the total, and whether the type is targeted; then the overall `metrics` for the tune and held-out halves separately at the current globals `phones.PHONE_ERROR_THRESHOLD` / `phones.PHONE_ERROR_MIN_EDITS`; then the mean confidence of localized vs missed phones.
+  - `TARGET_LOCALIZATION = 0.70`, `TARGET_FAR = 0.10` — the design's success bar (held-out localization >= 0.70 with false-alarm rate <= 0.10).
+  - `tune_table(rows, top=15, budgets=(0.05, 0.1, 0.2, 0.3)) -> str` — recall-first sweep over ONLY the tune half (`r["tune"] is True`); the held-out half is never used to select a point. For each false-alarm budget: the tune-half grid point with the highest localization recall, plus that point's held-out localization/FAR. Then the tune-half point reaching `TARGET_LOCALIZATION` with the fewest false alarms, with its held-out numbers. Then the global top-`top` by `f1` on the tune half.
+  - `report_table(rows) -> str` — per-error-type rows with one `localized/total` cell per word-length bucket (`len2` = <=2 phones, `len3`, `len4+`), the total, and whether the type is targeted, computed on the HELD-OUT half; a type with no held-out cells is listed and marked `(no held-out cells)`; then the overall `metrics` for the tune and held-out halves separately at the current globals `phones.PHONE_ERROR_THRESHOLD` / `phones.PHONE_ERROR_MIN_EDITS`; then a success-target line for the held-out half (`MET` iff `localization_recall >= TARGET_LOCALIZATION` and `far <= TARGET_FAR`); then the mean confidence of localized vs missed phones.
   - `tune(args)`, `report(args)` printing the tables and loading `args.out`.
 
 - [ ] **Step 1: Write the failing test**
@@ -729,7 +730,8 @@ git commit -m "feat(bench): add Indonesian error runner, cache and CLI skeleton"
 ```python
 class TestTables:
     def rows(self):
-        # One localized positive, one missed positive, one false alarm.
+        # Two tune positives (one localized, one missed), one tune negative,
+        # one held-out localized positive, one held-out negative.
         return [
             {"error_type": "voicing", "bad": True, "localized": True, "tune": True,
              "distance": 1, "word_len": 4, "expected": ["p", "a", "ɡ", "i"],
@@ -740,16 +742,42 @@ class TestTables:
             {"error_type": "none", "bad": False, "localized": False, "tune": True,
              "distance": 0, "word_len": 4, "expected": ["p", "a", "ɡ", "i"],
              "weighted_edits": 0.0, "phones": []},
+            {"error_type": "voicing", "bad": True, "localized": True, "tune": False,
+             "distance": 1, "word_len": 4, "expected": ["p", "a", "ɡ", "i"],
+             "weighted_edits": 1.0, "phones": [{"expected": "p", "heard": "b", "confidence": 0.5}]},
+            {"error_type": "none", "bad": False, "localized": False, "tune": False,
+             "distance": 0, "word_len": 4, "expected": ["p", "a", "ɡ", "i"],
+             "weighted_edits": 0.0, "phones": []},
         ]
 
-    def test_report_table_contains_every_error_type_and_buckets(self):
+    def test_report_table_reports_held_out_types_and_buckets(self):
         out = ie.report_table(self.rows())
         assert "voicing" in out and "e_to_i" in out and "overall" in out
-        assert "len4+" in out and "1/1" in out  # voicing localized in the >=4 bucket
+        assert "len4+" in out and "1/1" in out  # held-out voicing localized in the >=4 bucket
 
     def test_report_table_marks_non_targeted_types(self):
         out = ie.report_table(self.rows())
         assert "voicing" in out and "not-targeted" in out
+
+    def test_report_table_surfaces_the_success_target(self):
+        out = ie.report_table(self.rows())
+        # At the global constants this fixture's held-out positives are unflagged,
+        # so the target is not met and the line must say so.
+        assert "success target" in out and "NOT MET" in out
+
+    def test_tune_table_selects_from_the_tune_half_only(self):
+        def tune_part(rows):
+            out = ie.tune_table(rows, budgets=(0.1,))
+            return out.splitlines()[0].split("|")[0]
+        base = self.rows()
+        poisoned = [dict(r) for r in base]
+        for r in poisoned:
+            if not r["tune"]:
+                r["bad"] = False
+                r["localized"] = False
+                r["weighted_edits"] = 0.0
+                r["distance"] = 0
+        assert tune_part(base) == tune_part(poisoned)
 
     def test_tune_table_reports_a_best_point_per_budget(self):
         out = ie.tune_table(self.rows(), budgets=(0.0, 1.0))
@@ -766,6 +794,10 @@ Expected: FAIL with `AttributeError: module 'indonesian_errors' has no attribute
 Add to `benchmarks/indonesian_errors.py`:
 
 ```python
+TARGET_LOCALIZATION = 0.70
+TARGET_FAR = 0.10
+
+
 def _flag(threshold, min_edits):
     def flag(row):
         return is_flagged(row, threshold, min_edits)
@@ -780,54 +812,82 @@ def _bucket(word_len):
     return "len4+"
 
 
+def _split(rows, tune):
+    return [r for r in rows if r["tune"] == tune]
+
+
+def _grid_points(rows):
+    return [(metrics(rows, _flag(t, m)), t, m) for t, m in GRID]
+
+
+def _point_line(name, point, held):
+    m, t, me = point
+    hm = metrics(held, _flag(t, me))
+    return (f"{name}: threshold={t:.2f} min_edits={me} "
+            f"tune localization_recall={m['localization_recall']:.3f} far={m['far']:.3f} | "
+            f"held-out localization_recall={hm['localization_recall']:.3f} far={hm['far']:.3f}")
+
+
 def tune_table(rows, top=15, budgets=(0.05, 0.1, 0.2, 0.3)):
-    """Recall-first: best localization per false-alarm budget, then the top points by F1."""
+    """Recall-first sweep over the TUNE half only; the held-out half is reported, never selected on."""
+    tune_rows = _split(rows, True)
+    held = _split(rows, False)
+    points = _grid_points(tune_rows)
     lines = []
     for budget in budgets:
-        points = [(metrics(rows, _flag(t, m)), t, m) for t, m in GRID]
         eligible = [p for p in points if p[0]["far"] <= budget]
         if not eligible:
-            lines.append(f"far<={budget:.2f}: no point in the grid")
+            lines.append(f"far<={budget:.2f}: no point meets the budget")
             continue
-        m, t, me = max(eligible, key=lambda p: (p[0]["localization_recall"], -p[0]["far"]))
-        lines.append(f"far<={budget:.2f}: threshold={t:.2f} min_edits={me} "
-                     f"localization_recall={m['localization_recall']:.3f} far={m['far']:.3f} "
-                     f"precision={m['precision']:.3f}")
+        best = max(eligible, key=lambda p: (p[0]["localization_recall"], -p[0]["far"]))
+        lines.append(_point_line(f"far<={budget:.2f}", best, held))
+    reaching = [p for p in points if p[0]["localization_recall"] >= TARGET_LOCALIZATION]
+    if reaching:
+        best = min(reaching, key=lambda p: (p[0]["far"], -p[0]["localization_recall"]))
+        lines.append(_point_line(f"meets target loc>={TARGET_LOCALIZATION:.2f}", best, held))
+    else:
+        lines.append(f"meets target loc>={TARGET_LOCALIZATION:.2f}: no point in the grid")
     lines.append("")
-    lines.append(f"{'threshold':>9} {'min_edits':>9} {'loc_recall':>10} {'word_recall':>11} "
+    lines.append(f"{'threshold':>9} {'min_edits':>9} {'localization_recall':>19} {'word_recall':>11} "
                  f"{'P':>6} {'far':>6} {'F1':>6}")
-    ranked = sorted(((metrics(rows, _flag(t, m)), t, m) for t, m in GRID),
-                    key=lambda p: (-p[0]["f1"], p[0]["far"]))
+    ranked = sorted(points, key=lambda p: (-p[0]["f1"], p[0]["far"]))
     for m, t, me in ranked[:top]:
-        lines.append(f"{t:9.2f} {me:9} {m['localization_recall']:10.3f} {m['word_recall']:11.3f} "
+        lines.append(f"{t:9.2f} {me:9} {m['localization_recall']:19.3f} {m['word_recall']:11.3f} "
                      f"{m['precision']:6.3f} {m['far']:6.3f} {m['f1']:6.3f}")
     return "\n".join(lines)
 
 
 def report_table(rows):
-    """Localization per error type and word-length bucket, then overall metrics per split."""
-    types = [r["error_type"] for r in rows if r["bad"]]
-    ordered = list(dict.fromkeys(types))
+    """Held-out localization per error type and word-length bucket, then overall metrics per split."""
+    held = _split(rows, False)
+    all_types = list(dict.fromkeys(r["error_type"] for r in rows if r["bad"]))
     lines = [f"{'error_type':20} {'len2':>7} {'len3':>7} {'len4+':>7} {'total':>7}  target"]
-    for error_type in ordered:
-        positives = [r for r in rows if r["bad"] and r["error_type"] == error_type]
+    for error_type in all_types:
+        positives = [r for r in held if r["bad"] and r["error_type"] == error_type]
+        mark = "not-targeted" if error_type in NOT_TARGETED else "targeted"
+        if not positives:
+            lines.append(f"{error_type:20} {'-':>7} {'-':>7} {'-':>7} "
+                         f"{'(no held-out cells)':>20}  {mark}")
+            continue
         cells, hit = [], 0
         for bucket in ("len2", "len3", "len4+"):
             group = [r for r in positives if _bucket(r["word_len"]) == bucket]
             hits = sum(1 for r in group if r["localized"])
             cells.append(f"{hits}/{len(group)}" if group else "-")
             hit += hits
-        mark = "not-targeted" if error_type in NOT_TARGETED else "targeted"
         lines.append(f"{error_type:20} {cells[0]:>7} {cells[1]:>7} {cells[2]:>7} "
                      f"{f'{hit}/{len(positives)}':>7}  {mark}")
     lines.append("")
     current = _flag(phones.PHONE_ERROR_THRESHOLD, phones.PHONE_ERROR_MIN_EDITS)
     for split, keep in (("tune", True), ("held-out", False)):
-        subset = [r for r in rows if r["tune"] == keep]
-        m = metrics(subset, current)
+        m = metrics(_split(rows, keep), current)
         lines.append(f"overall {split:9} n_pos={m['n_pos']} n_neg={m['n_neg']} "
                      f"localization_recall={m['localization_recall']:.3f} word_recall={m['word_recall']:.3f} "
                      f"precision={m['precision']:.3f} far={m['far']:.3f}")
+    hm = metrics(held, current)
+    met = hm["localization_recall"] >= TARGET_LOCALIZATION and hm["far"] <= TARGET_FAR
+    lines.append(f"success target (held-out localization_recall>={TARGET_LOCALIZATION:.2f} "
+                 f"and far<={TARGET_FAR:.2f}): {'MET' if met else 'NOT MET'}")
     for name, want in (("hit", True), ("miss", False)):
         confidences = [max((p["confidence"] for p in r["phones"]), default=0.0)
                        for r in rows if r["bad"] and r["localized"] == want]
