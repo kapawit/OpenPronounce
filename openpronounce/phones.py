@@ -47,10 +47,41 @@ PHONE_PLAUSIBLE_POSTERIOR = 0.05
 #: Per-language overrides of (threshold, min_edits); empty means the globals above apply.
 PHONE_THRESHOLDS = {}
 
+#: Per-language overrides of the cost constants above. Keys: ``near`` (NEAR_PHONE_COST),
+#: ``final_extra`` (FINAL_EXTRA_COST), ``final_deletion`` (FINAL_DELETION_COST).
+PHONE_COSTS = {}
+
+#: Languages whose ``min_edits`` gate counts *edits* (Levenshtein distance) rather than
+#: the sum of confidences. Plausibility scaling can leave a genuine single substitution
+#: at 0.86-0.99, just under an integer ``min_edits``; counting edits flags it. Off by
+#: default so English/French keep the confidence-sum behaviour.
+PHONE_EDIT_COUNT_MIN = set()
+
 
 def phone_thresholds(lang=DEFAULT_LANGUAGE):
     """``(PHONE_ERROR_THRESHOLD, PHONE_ERROR_MIN_EDITS)`` for ``lang``, or its override."""
     return PHONE_THRESHOLDS.get(lang, (PHONE_ERROR_THRESHOLD, PHONE_ERROR_MIN_EDITS))
+
+
+def phone_costs(lang=DEFAULT_LANGUAGE):
+    """``(near, final_extra, final_deletion)`` cost constants for ``lang``, with overrides applied."""
+    costs = {"near": NEAR_PHONE_COST, "final_extra": FINAL_EXTRA_COST,
+             "final_deletion": FINAL_DELETION_COST}
+    costs.update(PHONE_COSTS.get(lang, {}))
+    return costs
+
+
+def word_is_error(distance, edits, length, threshold, min_edits, count_edits):
+    """Whether a word's phone report is an error worth flagging.
+
+    True when the word differs (``distance``) and either the confidences reach ``threshold``
+    of the phones, or the edit count reaches ``min_edits``. ``count_edits`` counts raw
+    Levenshtein edits (behaviour sensitive to sub-integer confidences) instead of their sum.
+    """
+    if not distance:
+        return False
+    count = distance if count_edits else edits
+    return edits / length >= threshold or count >= min_edits
 
 
 # Recognizer tokens that are not phones of any supported language: Mandarin tone
@@ -115,7 +146,7 @@ _NEAR_PHONES = {
     # weakly ("mau" -> /ma/). Learners and raters do not count those as errors.
     "id": [
         {"p", "b"}, {"t", "d"}, {"k", "ɡ"}, {"s", "z"}, {"f", "v"}, {"ʃ", "ʒ"}, {"tʃ", "dʒ"},
-        {"n", "ŋ"},
+        {"n", "ŋ", "m"},
         {"aʊ", "a"}, {"aʊ", "u"}, {"aɪ", "a"}, {"aɪ", "i"}, {"oɪ", "o"}, {"oɪ", "i"},
         # The recognizer cannot tell pepet /ə/ from /a/ or /e/; keep a and e distinct.
         {"ə", "a"}, {"ə", "e"},
@@ -129,6 +160,10 @@ _DIPHTHONG_MERGES = {
         ("a", "ʊ"): "aʊ", ("a", "u"): "aʊ",
         ("a", "ɪ"): "aɪ", ("a", "i"): "aɪ",
         ("o", "ɪ"): "oɪ", ("o", "i"): "oɪ",
+        ("aʊ", "ʉ"): "aʊ", ("aʊ", "u"): "aʊ", ("a", "ʉ"): "aʊ", ("ʊ", "ʉ"): "ʊ", ("u", "ʉ"): "u", ("u", "w"): "u", ("ʉ", "n"): "un",
+        ("i", "j"): "i", ("ɪ", "j"): "i", ("j", "a"): "ja", ("i", "a"): "ia",
+        ("ŋ", "ɡ"): "ŋ", ("ŋ", "k"): "ŋ", ("n", "ɡ"): "ŋ", ("m", "b"): "m",
+        ("r", "l"): "r", ("l", "r"): "l",
     },
 }
 
@@ -399,10 +434,10 @@ def _merge_diphthongs_indexed(phones, groups, lang):
 
 
 def _substitution_cost(expected, heard, lang):
-    """Cost of hearing ``heard`` instead of ``expected``: 1, or NEAR_PHONE_COST for close phones."""
+    """Cost of hearing ``heard`` instead of ``expected``: 1, or the near-phone cost for close phones."""
     for group in _NEAR_PHONES.get(lang, []):
         if expected in group and heard in group:
-            return NEAR_PHONE_COST
+            return phone_costs(lang)["near"]
     return 1.0
 
 
@@ -447,20 +482,21 @@ def _phone_reports(candidate, actual, matched, recognition, region, lang):
 
     reports = []
     last = len(candidate) - 1
+    costs = phone_costs(lang)
     for k, expected in enumerate(candidate):
         heard_indices = sorted(local[k])
         heard = [actual[j] for j in heard_indices]
         if heard == [expected]:
             confidence = 0.0
         elif expected in heard:
-            confidence = FINAL_EXTRA_COST if k == last else 1.0
+            confidence = costs["final_extra"] if k == last else 1.0
         else:
             if heard:
                 cost = max(_substitution_cost(expected, h, lang) for h in heard)
                 start = min(frames(j)[0] for j in heard_indices)
                 end = max(frames(j)[1] for j in heard_indices)
             else:
-                cost = FINAL_DELETION_COST if k == last else 1.0
+                cost = costs["final_deletion"] if k == last else 1.0
                 previous = [j for kk in range(k) for j in local[kk]]
                 following = [j for kk in range(k + 1, len(candidate)) for j in local[kk]]
                 start = frames(max(previous))[0] if previous else region[0]
@@ -563,11 +599,12 @@ def compare_phones(heard_phones, text_reference, lang=DEFAULT_LANGUAGE):
         phone_error_rate = 1.0 if heard else 0.0
 
     threshold, min_edits = phone_thresholds(lang)
+    count_edits = lang in PHONE_EDIT_COUNT_MIN
     errors = []
     words_with_errors = []
     for report in _word_reports(heard_phones, text_reference, lang):
         edits, length = report["weighted_edits"], len(report["expected"])
-        if report["distance"] and (edits / length >= threshold or edits >= min_edits):
+        if word_is_error(report["distance"], edits, length, threshold, min_edits, count_edits):
             errors.append({
                 "position": report["position"],
                 "word": report["word"],
