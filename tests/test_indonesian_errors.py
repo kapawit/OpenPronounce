@@ -183,7 +183,8 @@ class TestBuildRows:
 
 class TestTables:
     def rows(self):
-        # One localized positive, one missed positive, one false alarm.
+        # Two tune positives (one localized, one missed), one tune negative,
+        # one held-out localized positive, one held-out negative.
         return [
             {"error_type": "voicing", "bad": True, "localized": True, "tune": True,
              "distance": 1, "word_len": 4, "expected": ["p", "a", "ɡ", "i"],
@@ -194,16 +195,42 @@ class TestTables:
             {"error_type": "none", "bad": False, "localized": False, "tune": True,
              "distance": 0, "word_len": 4, "expected": ["p", "a", "ɡ", "i"],
              "weighted_edits": 0.0, "phones": []},
+            {"error_type": "voicing", "bad": True, "localized": True, "tune": False,
+             "distance": 1, "word_len": 4, "expected": ["p", "a", "ɡ", "i"],
+             "weighted_edits": 1.0, "phones": [{"expected": "p", "heard": "b", "confidence": 0.5}]},
+            {"error_type": "none", "bad": False, "localized": False, "tune": False,
+             "distance": 0, "word_len": 4, "expected": ["p", "a", "ɡ", "i"],
+             "weighted_edits": 0.0, "phones": []},
         ]
 
-    def test_report_table_contains_every_error_type_and_buckets(self):
+    def test_report_table_reports_held_out_types_and_buckets(self):
         out = ie.report_table(self.rows())
         assert "voicing" in out and "e_to_i" in out and "overall" in out
-        assert "len4+" in out and "1/1" in out  # voicing localized in the >=4 bucket
+        assert "len4+" in out and "1/1" in out  # held-out voicing localized in the >=4 bucket
 
     def test_report_table_marks_non_targeted_types(self):
         out = ie.report_table(self.rows())
         assert "voicing" in out and "not-targeted" in out
+
+    def test_report_table_surfaces_the_success_target(self):
+        out = ie.report_table(self.rows())
+        # At the global constants this fixture's held-out positives are unflagged,
+        # so the target is not met and the line must say so.
+        assert "success target" in out and "NOT MET" in out
+
+    def test_tune_table_selects_from_the_tune_half_only(self):
+        def tune_part(rows):
+            out = ie.tune_table(rows, budgets=(0.1,))
+            return out.splitlines()[0].split("|")[0]
+        base = self.rows()
+        poisoned = [dict(r) for r in base]
+        for r in poisoned:
+            if not r["tune"]:
+                r["bad"] = False
+                r["localized"] = False
+                r["weighted_edits"] = 0.0
+                r["distance"] = 0
+        assert tune_part(base) == tune_part(poisoned)
 
     def test_tune_table_reports_a_best_point_per_budget(self):
         out = ie.tune_table(self.rows(), budgets=(0.0, 1.0))
