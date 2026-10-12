@@ -224,6 +224,34 @@ def assets(args):
         print(f"{correct:8s} -> {wrong:8s}  localized={row['localized']} bad={row['bad']}")
 
 
+def score_directory(directory, lang=ID_LANG, recognize=None):
+    """Score every ``*.wav`` under ``directory`` against its sibling ``*.txt`` (real readings)."""
+    if recognize is None:
+        from openpronounce import audio
+        recognize = lambda path: phones.recognize_phones(audio.load(path), lang=lang)  # noqa: E731
+    results = []
+    for name in sorted(os.listdir(directory)):
+        if not name.endswith(".wav"):
+            continue
+        stem = name[:-4]
+        text_path = os.path.join(directory, stem + ".txt")
+        if not os.path.exists(text_path):
+            logger.warning("no text for %s, skipped", name)
+            continue
+        with open(text_path) as f:
+            text = f.read().strip()
+        result = phones.compare_phones(recognize(os.path.join(directory, name)), text, lang=lang)
+        results.append({"wav": name, "text": text,
+                        "errors": [e["word"] for e in result["errors"]]})
+    return results
+
+
+def real(args):
+    for row in score_directory(args.real, args.lang):
+        flagged = ", ".join(row["errors"]) or "-"
+        print(f"{row['wav']:30s} {row['text']:30s} flagged: {flagged}")
+
+
 TARGET_LOCALIZATION = 0.70
 TARGET_FAR = 0.10
 
@@ -357,6 +385,8 @@ def main(argv=None):
         report(args)
     elif args.assets:
         assets(args)
+    elif args.real:
+        real(args)
     else:
         print("mode not implemented yet")  # replaced in Task 6 and Task 7
 

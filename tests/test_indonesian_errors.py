@@ -235,3 +235,19 @@ class TestTables:
     def test_tune_table_reports_a_best_point_per_budget(self):
         out = ie.tune_table(self.rows(), budgets=(0.0, 1.0))
         assert "far<=" in out and "localization_recall" in out
+
+
+class TestRealMode:
+    def test_score_directory_pairs_wav_and_text(self, tmp_path):
+        (tmp_path / "a.wav").write_bytes(b"")
+        (tmp_path / "a.txt").write_text("makan")
+        (tmp_path / "b.wav").write_bytes(b"")
+        (tmp_path / "b.txt").write_text("pagi")
+
+        def fake_recognize(path):
+            return ["m", "a", "k", "a"]
+
+        results = ie.score_directory(str(tmp_path), recognize=fake_recognize)
+        assert [r["text"] for r in results] == ["makan", "pagi"]
+        # "makan" heard as "maka" is flagged; "pagi" heard as "maka" is also flagged
+        assert all("errors" in r for r in results)
