@@ -49,3 +49,46 @@ def changed_expected_phones(correct, wrong, lang=ID_LANG):
 def localized(report, changed):
     """True when a phone flagged in ``report`` is one the misspelling changed."""
     return any(p["confidence"] > 0 and p["expected"] in changed for p in report["phones"])
+
+
+def is_flagged(report, threshold, min_edits):
+    """A word is flagged when its weighted edits reach ``threshold`` of its phones or ``min_edits``."""
+    edits, length = report["weighted_edits"], len(report["expected"])
+    return report["distance"] > 0 and (edits / length >= threshold or edits >= min_edits)
+
+
+def is_tune_word(word):
+    """Stable hash parity, so the tuning/held-out split is identical in every process."""
+    return int(hashlib.sha1(word.encode("utf-8")).hexdigest(), 16) % 2 == 0
+
+
+GRID = list(itertools.product([t / 20 for t in range(4, 25)], [1, 1.5, 2, 2.5, 3, 4, 99]))
+
+
+def metrics(rows, flag):
+    """Localization recall (primary), word recall, precision and false-alarm rate over ``rows``.
+
+    Positives (``bad``) are induced-error cells: a hit needs the flag AND ``localized``.
+    Negatives are correct audio: any flag is a false alarm. ``f1`` is the harmonic mean of
+    ``precision`` and ``word_recall`` (word level); localization is reported separately.
+    """
+    positive = [r for r in rows if r["bad"]]
+    negative = [r for r in rows if not r["bad"]]
+    hit = sum(1 for r in positive if flag(r) and r["localized"])
+    mislocalized = sum(1 for r in positive if flag(r) and not r["localized"])
+    flagged_pos = hit + mislocalized
+    fp = sum(1 for r in negative if flag(r))
+    n_pos, n_neg = len(positive), len(negative)
+    precision = flagged_pos / (flagged_pos + fp) if flagged_pos + fp else 0.0
+    word_recall = flagged_pos / n_pos if n_pos else 0.0
+    f1 = 2 * precision * word_recall / (precision + word_recall) if precision + word_recall else 0.0
+    return {
+        "n_pos": n_pos, "n_neg": n_neg,
+        "localized": hit, "mislocalized": mislocalized,
+        "flagged_pos": flagged_pos, "unflagged_pos": n_pos - flagged_pos, "fp": fp,
+        "localization_recall": hit / n_pos if n_pos else 0.0,
+        "word_recall": word_recall,
+        "precision": precision,
+        "far": fp / n_neg if n_neg else 0.0,
+        "f1": f1,
+    }

@@ -52,3 +52,51 @@ class TestGroundTruth:
 
     def test_no_change_gives_empty(self):
         assert ie.changed_expected_phones("makan", "makan") == []
+
+
+class TestMetrics:
+    def rows(self):
+        def r(bad, localized, flag):
+            return {"bad": bad, "localized": localized, "_flag": flag}
+        return [
+            r(True, True, True), r(True, True, True), r(True, True, True),   # localized hits
+            r(True, False, True),                                            # flagged, wrong phone
+            r(True, True, False), r(True, False, False),                     # missed
+            r(False, False, True),                                           # false alarm
+            r(False, False, False), r(False, False, False),
+            r(False, False, False), r(False, False, False),
+        ]
+
+    def test_metrics_exact(self):
+        m = ie.metrics(self.rows(), lambda row: row["_flag"])
+        assert m["n_pos"] == 6 and m["n_neg"] == 5
+        assert m["localized"] == 3 and m["mislocalized"] == 1
+        assert m["flagged_pos"] == 4 and m["fp"] == 1
+        assert m["localization_recall"] == 3 / 6
+        assert m["word_recall"] == 4 / 6
+        assert m["precision"] == 4 / 5
+        assert m["far"] == 1 / 5
+        assert m["f1"] == 2 * (4 / 5) * (4 / 6) / ((4 / 5) + (4 / 6))
+
+    def test_metrics_never_divides_by_zero(self):
+        m = ie.metrics([], lambda row: row["_flag"])
+        assert m["localization_recall"] == 0.0 and m["far"] == 0.0 and m["precision"] == 0.0
+
+
+class TestSplit:
+    def test_tune_word_is_deterministic_and_stable(self):
+        assert ie.is_tune_word("makan") == ie.is_tune_word("makan")
+        # A literal value pinned so a change of hash breaks the test, not silently the split.
+        assert ie.is_tune_word("makan") == (int(hashlib.sha1("makan".encode()).hexdigest(), 16) % 2 == 0)
+
+
+class TestFlagRule:
+    def test_flag_rule_threshold_or_min_edits(self):
+        long = {"distance": 1, "expected": ["m", "a", "k", "a", "n"], "weighted_edits": 2.0}
+        assert ie.is_flagged(long, 0.4, 2) is True       # 2.0 >= min_edits
+        short = {"distance": 1, "expected": ["m", "a", "k", "a", "n"], "weighted_edits": 0.5}
+        assert ie.is_flagged(short, 0.4, 2) is False     # 0.5 / 5 = 0.1 < 0.4 and 0.5 < 2
+        ratio = {"distance": 1, "expected": ["m", "a"], "weighted_edits": 1.0}
+        assert ie.is_flagged(ratio, 0.4, 2) is True      # 1.0 / 2 = 0.5 >= 0.4
+        clean = {"distance": 0, "expected": ["m", "a"], "weighted_edits": 0.0}
+        assert ie.is_flagged(clean, 0.4, 2) is False     # a perfect word is never flagged
