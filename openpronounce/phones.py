@@ -83,6 +83,8 @@ _PHONE_MAP = {
         "ħ": "h",
         "ɹ": "r",   # the recognizer spells Indonesian r as the English approximant
         "ɾ": "r",   # ...or as a tap
+        "ʔ": "",    # glottal stop the recognizer inserts between vowels (espeak writes none)
+        "Ɂ": "",    # ...the capital-glyph variant
     },
 }
 
@@ -106,6 +108,8 @@ _NEAR_PHONES = {
         {"p", "b"}, {"t", "d"}, {"k", "ɡ"}, {"s", "z"}, {"f", "v"}, {"ʃ", "ʒ"}, {"tʃ", "dʒ"},
         {"n", "ŋ"},
         {"aʊ", "a"}, {"aʊ", "u"}, {"aɪ", "a"}, {"aɪ", "i"}, {"oɪ", "o"}, {"oɪ", "i"},
+        # The recognizer cannot tell pepet /ə/ from /a/ or /e/; keep a and e distinct.
+        {"ə", "a"}, {"ə", "e"},
     ],
 }
 

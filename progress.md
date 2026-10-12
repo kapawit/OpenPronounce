@@ -28,13 +28,13 @@ for the pronunciation scorer. POC first, then calibrate.
     x/χ/ħ.
   - `_NEAR_PHONES["id"]`: close pairs `{p,b} {t,d} {k,ɡ} {s,z} {f,v} {ʃ,ʒ}
     {tʃ,dʒ} {n,ŋ}`. The recognizer systematically voices Indonesian's
-    unaspirated stops and maps final /ŋ/ to n. `/ə/` vs `/a/` is deliberately
-    *not* close: it is contrastive (`perang` "war" vs `parang` "machete").
+    unaspirated stops and maps final /ŋ/ to n. `/ə/` vs `/a/` was kept
+    contrastive here, then relaxed to a close pair in step 2 (see below).
 - `tests/test_languages.py` — `TestIndonesianPhones` (merges, language-awareness,
   close-phone cost, and a `kata` behavioral check that flags in German but not
   in Indonesian).
 
-### Calibration step 2 (diphthongs and rhotics)
+### Calibration step 2 (diphthongs, rhotics, glottal stops, schwa)
 
 - `openpronounce/phones.py`:
   - `_NEAR_PHONES["id"]` gained diphthong/vowel close pairs `{aʊ,a} {aʊ,u}
@@ -54,11 +54,23 @@ for the pronunciation scorer. POC first, then calibrate.
   - `_PHONE_MAP["id"]`: `ɹ -> r`, `ɾ -> r`. The recognizer spells Indonesian
     `/r/` as the English approximant (or a tap), which otherwise split a word
     (`ular` -> `ulaɹʔ`) and caused a false alarm.
+  - `_PHONE_MAP["id"]`: `ʔ -> ""` (dropped). espeak never writes a glottal stop
+    for Indonesian, but the recognizer inserts one between two vowels
+    (`pisau itu` -> `pisaʔ itu`), which caused false alarms on `pisau`, `pulau`,
+    `dua`.
+  - `_NEAR_PHONES["id"]`: `{ə,a}` and `{ə,e}` as close pairs. The recognizer
+    cannot tell pepet `/ə/` from `/a/` or `/e/` (`televisi` -> `dalafisi`), so a
+    confusion is a minor error. Two separate groups keep `a` and `e` distinct
+    (`enak` "tasty" vs `anak` "child"). This supersedes the earlier
+    "keep `/ə/` contrastive" decision: the flag threshold already tolerates a
+    single substitution, so `perang`/`parang` was never caught anyway, while
+    schwa-heavy words false-alarmed.
 - `tests/test_languages.py` — new `TestIndonesianPhones` cases:
-  `test_rhotic_variants_map_to_r`, `test_diphthong_glides_are_close_to_their_vowels`,
+  `test_rhotic_variants_map_to_r`, `test_glottal_stop_insertions_are_dropped`,
+  `test_diphthong_glides_are_close_to_their_vowels`,
   `test_dropped_diphthong_glide_is_not_flagged`, `test_split_diphthong_is_reunited`
-  (includes the `Dua ular` word-boundary control), and
-  `test_genuine_error_is_still_flagged` (guards against over-tolerance).
+  (includes the `Dua ular` word-boundary control), `test_schwa_is_close_to_a_and_e`,
+  and `test_genuine_error_is_still_flagged` (guards against over-tolerance).
 
 ## Verification
 
@@ -66,7 +78,7 @@ Environment: `.venv` (created with `virtualenv`; the system `python3-venv`
 module and `espeak-ng` CLI are absent, but `libespeak-ng` + `espeak-ng-data`
 are installed, so `phonemizer` works). Torch from the CPU wheel index.
 
-- Full suite: `111 passed` (`.venv/bin/pytest`).
+- Full suite: `112 passed` (`.venv/bin/pytest`).
 - `TestIndonesian::test_registry_entry` and `TestIndonesianPhones` pass.
 - Phonemization: `"Saya mau pesan kopi, tolong."` -> `/saja maʊ pɛsan kopi toloŋ/`.
 - `GET /languages` returns `{"code": "id", "name": "Indonesian"}`.
@@ -75,9 +87,11 @@ are installed, so `phonemizer` works). Torch from the CPU wheel index.
 - Flagged-word sample (same 41 gTTS words, `compare_phones` after steps 1+2):
   **0/41 words flagged** (single words and the tricky diphthong words `mau`,
   `pisau`, `kerbau`, `pantai`, `sampai`, `pulau`).
-- Sentence sample (18 gTTS sentences): **0/18 flagged**; the word-boundary
-  controls `"Dua ular itu."` (PER 0.10) and `"Kota udara itu."` (PER 0.08) are
-  clean, confirming the per-word diphthong merge does not bleed across words.
+- Sentence samples (36 gTTS sentences across two sets: greetings, questions,
+  numbers, reduplication, loanwords, `ng`/`ny`, final glottal, diphthongs):
+  **0/36 flagged**. Word-boundary controls `"Dua ular itu."` (PER 0.00) and
+  `"Kota udara itu."` (PER 0.08) are clean, confirming the per-word diphthong
+  merge and the glottal-drop do not bleed across words.
 - Full pipeline on a gTTS Indonesian clip (`compare_audio_with_text`, lang=`id`):
 
   ```
@@ -118,8 +132,9 @@ are installed, so `phonemizer` works). Torch from the CPU wheel index.
 
 1. (done) Sample espeak `id` vs the recognizer; add `_PHONE_MAP` / `_NEAR_PHONES`.
 2. (done) Reunite diphthongs (`aɪ`, `aʊ`, `oɪ`) the recognizer splits into
-   vowel+glide, and map the rhotic variants, to clear the `mau`/`ular`-type
-   false alarms.
+   vowel+glide, map the rhotic variants, drop inserted glottal stops, and treat
+   pepet `/ə/` as close to `/a/`/`/e/`, to clear the `mau`/`ular`/`pisau`/
+   `televisi`-type false alarms.
 3. Measure the acoustic baseline and set `acoustic_good` from data — blocked on a
    second Indonesian voice (Piper has no `id` voice today).
 4. Collect native readings for human calibration, then tune the flag thresholds

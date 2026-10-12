@@ -56,6 +56,10 @@ class TestIndonesianPhones(unittest.TestCase):
         self.assertEqual(phones.normalize_phones(["ɹ"], lang="id"), ["r"])
         self.assertEqual(phones.normalize_phones(["ɾ"], lang="id"), ["r"])
 
+    def test_glottal_stop_insertions_are_dropped(self):
+        # espeak never writes /ʔ/ for Indonesian; the recognizer inserts it between vowels.
+        self.assertEqual(phones.normalize_phones(["a", "ʔ", "i"], lang="id"), ["a", "i"])
+
     def test_merges_are_indonesian_only(self):
         self.assertEqual(phones.normalize_phones(["ɛ"], lang="de"), ["ɛ"])
         self.assertEqual(phones.normalize_phones(["ɑ"], lang="fr"), ["ɑ"])
@@ -69,9 +73,13 @@ class TestIndonesianPhones(unittest.TestCase):
         # ...but a full error in a language without that rule.
         self.assertEqual(phones._substitution_cost("p", "b", "de"), 1.0)
 
-    def test_schwa_and_a_are_not_treated_as_close(self):
-        # /ə/ vs /a/ changes meaning (perang "war" vs parang "machete"), so it is a full error.
-        self.assertEqual(phones._substitution_cost("ə", "a", "id"), 1.0)
+    def test_schwa_is_close_to_a_and_e(self):
+        # The recognizer cannot tell pepet /ə/ from /a/ or /e/, so a confusion is a minor
+        # error (not a full one). Two separate groups keep a and e themselves distinct
+        # (enak "tasty" vs anak "child").
+        self.assertEqual(phones._substitution_cost("ə", "a", "id"), phones.NEAR_PHONE_COST)
+        self.assertEqual(phones._substitution_cost("ə", "e", "id"), phones.NEAR_PHONE_COST)
+        self.assertEqual(phones._substitution_cost("a", "e", "id"), 1.0)
 
     def test_diphthong_glides_are_close_to_their_vowels(self):
         # The English phone model hears the second half of a diphthong weakly.
